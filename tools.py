@@ -77,9 +77,9 @@ def discretize(Ac,Bc,dt):
     B = M[:Ac.shape[0],Ac.shape[0]:]
     return A,B
 
-def cvx2arr(x):
+def cvx2arr(x,dual=False):
     """Convert CVX variable to an array"""
-    return np.array(x.value.T).flatten()
+    return np.array(x.value.T if not dual else x.dual_value.T).flatten()
 
 def project(y,C):
     """

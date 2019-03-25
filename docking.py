@@ -32,7 +32,7 @@ class Docker(lcvx.Problem,object):
         
         # Physical parameters
         omega = np.array([0.01*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.]) # [rad/s] Space station spin
-        self.rho1 = 0.5e-2 # [m/s^2] Smallest control acceleration
+        self.rho1 = 0.#0.5e-2 # [m/s^2] Smallest control acceleration
         self.rho2 = 0.5e-1 # [m/s^2] Largest control acceleration
         
         # RCS layout
@@ -48,7 +48,7 @@ class Docker(lcvx.Problem,object):
 #                           dict(alpha=cone_angle,roll=phi+(180-2*phi),pitch=theta,yaw=0),
 #                           dict(alpha=cone_angle,roll=0,pitch=0,yaw=0),
 #                           dict(alpha=cone_angle,roll=180,pitch=0,yaw=0)]
-        cone_parameters = [#dict(alpha=cone_angle,roll=0,pitch=0,yaw=0),
+        cone_parameters = [dict(alpha=cone_angle,roll=0,pitch=0,yaw=0),
                            dict(alpha=cone_angle,roll=180,pitch=0,yaw=0),
                            dict(alpha=cone_angle,roll=90,pitch=0,yaw=0),
                            dict(alpha=cone_angle,roll=-90,pitch=0,yaw=0),
@@ -63,9 +63,11 @@ class Docker(lcvx.Problem,object):
         S = lambda w: np.array([[0,-w[2],w[1]],[w[2],0,-w[0]],[-w[1],w[0],0]])
         Ac = np.block([[np.zeros((3,3)),np.eye(3)],[-mpow(S(omega),2),-2*S(omega)]])
         Bc = np.row_stack([np.zeros((3,3)),np.eye(3)])
+        nx,nu = Ac.shape[1], Bc.shape[1]
+        A = cvx.Parameter(nx,nx)
+        B = cvx.Parameter(nx,nu)
         
         # Scaling
-        nx,nu = Ac.shape[1], Bc.shape[1]
         Dx = np.concatenate(np.abs([r0,v0]))
         Dx[Dx==0] = 1
         Dx = np.diag(Dx)
@@ -73,53 +75,76 @@ class Docker(lcvx.Problem,object):
         
         # Optimization problem common parts
         self.N = 100 # Temporal solution
-        x = [Dx*cvx.Variable(nx) for _ in range(self.N+1)]
-        xi = cvx.Variable(self.N+1)
+        x = [cvx.Parameter(nx)]+[Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
         u = [[Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
         sigma = [cvx.Variable(self.N) for _ in range(self.M)]
         gamma = [cvx.Variable(self.N) for _ in range(self.M)]
+        dt = cvx.Parameter()
         
-        constraints = []
-        constraints += [x[0] == np.concatenate([r0,v0]),
-                        x[-1] == np.concatenate([rf,vf]),
-                        xi[0] == 0]
+        self.zeta = 0
+        cost_p2 = cvx.Minimize(dt*self.N)
+        
+        self.constraints = []
+        self.dual2idx = dict()
+        def add_constraint(new_constraints,dual):
+            """
+            Add constraint(s).
+            
+            Parameters
+            ----------
+            new_constraints : list
+                List of constraints to add.
+            dual : str
+                Dual variable name.
+            """
+            idx_start = len(self.constraints)
+            self.constraints += new_constraints
+            idx_end = len(self.constraints)
+            if dual not in self.dual2idx:
+                self.dual2idx[dual] = range(idx_start,idx_end)
+            else:
+                self.dual2idx[dual] += range(idx_start,idx_end)
+        
+        add_constraint([x[k+1] == A*x[k]+B*sum([u[i][k] for i in range(self.M)]) for k in range(self.N)],'nu_x')
+        x[0].value = np.concatenate([r0,v0])
+        add_constraint([x[-1] == np.concatenate([rf,vf])],'nu_xN')
         for i in range(self.M):
-            constraints += [cvx.norm2(u[i][k]) <= sigma[i][k] for k in range(self.N)]
-            constraints += [gamma[i][k]*self.rho1 <= sigma[i][k] for k in range(self.N)]
-            constraints += [sigma[i][k] <= gamma[i][k]*self.rho2 for k in range(self.N)]
-            constraints += [gamma[i][k] >= 0 for k in range(self.N)]
-            constraints += [gamma[i][k] <= 1 for k in range(self.N)]
-            constraints += [self.C[i]*u[i][k] <= 0 for k in range(self.N)]
-        constraints += [sum([gamma[i][k] for i in range(self.M)]) <= K for k in range(self.N)]
-                
+            add_constraint([cvx.norm2(u[i][k]) <= sigma[i][k] for k in range(self.N)],'lambda_sigma')
+            add_constraint([gamma[i][k]*self.rho1 <= sigma[i][k] for k in range(self.N)],'lambda_rho1')
+            add_constraint([sigma[i][k] <= gamma[i][k]*self.rho2 for k in range(self.N)],'lambda_rho2')
+            add_constraint([gamma[i][k] >= 0 for k in range(self.N)],'lambda_gamma_low')
+            add_constraint([gamma[i][k] <= 1 for k in range(self.N)],'lambda_gamma_high')
+            add_constraint([self.C[i]*u[i][k] <= 0 for k in range(self.N)],'lambda_u')
+        add_constraint([sum([gamma[i][k] for i in range(self.M)]) <= K for k in range(self.N)],'lambda_sum_gamma')
+        
         # Problem 2 oracle
+        p2 = cvx.Problem(cost_p2,self.constraints)
         def problem2(tf):
-            dt = tf/float(self.N)
-            A,B = tools.discretize(Ac,Bc,dt)
+            dt.value = tf/float(self.N)
+            A.value,B.value = tools.discretize(Ac,Bc,dt.value)
+            self.Ad = np.array(A.value)
+            self.Bd = np.array(B.value)
             
-            self.zeta = 0
-            cost = cvx.Minimize(tf)
-            extra_constraints = []
-            extra_constraints += [x[k+1] == A*x[k]+B*sum([u[i][k] for i in range(self.M)]) for k in range(self.N)]
-            extra_constraints += [xi[k+1] == xi[k]+dt*sum([sigma[i][k] for i in range(self.M)]) for k in range(self.N)]
-            
-            p2 = cvx.Problem(cost,extra_constraints+constraints)
-            
-            t = np.array([k*dt for k in range(self.N+1)])
+            t = np.array([k*dt.value for k in range(self.N+1)])
             try:
                 J = p2.solve(**cvx_opts)
                 if p2.status=='infeasible':
                     return p2.status,J,t,None,None,None
                 else:
                     # All good, return solution
+                    # Primal variables
                     primal = dict()
-                    dual = dict()
-                    misc = dict()
                     primal['x'] = np.column_stack([tools.cvx2arr(x[k]) for k in range(self.N+1)])
                     primal['u'] = [np.column_stack([tools.cvx2arr(u[i][k]) for k in range(self.N)]) for i in range(self.M)]
                     primal['sigma'] = [np.array([sigma[i][k].value for k in range(self.N)]) for i in range(self.M)]
-                    dual['lambda'] = np.column_stack([np.array(extra_constraints[k].dual_value.T).flatten() for k in range(self.N)])
-                    misc['y'] = np.row_stack([B.T.dot(dual['lambda'][:,k]) for k in range(self.N)])
+                    primal['gamma'] = [np.array([gamma[i][k].value for k in range(self.N)]) for i in range(self.M)]
+                    # Dual variables
+                    dual = dict()
+                    for name in cooper.dual2idx.keys():
+                        dual[name] = np.column_stack([tools.cvx2arr(self.constraints[k],dual=True) for k in self.dual2idx[name]])
+                    # Other (derived) variables
+                    misc = dict()
+                    misc['y'] = np.row_stack([np.array(B.value).T.dot(dual['nu_x'][:,k]) for k in range(self.N)])
                     return p2.status,J,t,primal,dual,misc
             except cvx.SolverError:
                 return 'cvx.SolverError',np.inf,t,None,None,None
@@ -129,10 +154,10 @@ class Docker(lcvx.Problem,object):
 cooper = Docker()
 #import sys
 #sys.exit()
-#J,t,primal,dual,misc = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-3)
-J,t,primal,dual,misc = lcvx.solve(cooper,[480]*2,opt_tol=1e-2) #293.48
+J,t,primal,dual,misc = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-3)
+#J,t,primal,dual,misc = lcvx.solve(cooper,[281.04]*2,opt_tol=1e-2) #293.48
 
-#%%
+#%% Plot the solution
 
 # Thruster layout
 fig = plt.figure(1)
@@ -246,6 +271,8 @@ for i in range(cooper.M):
     ax = fig.add_subplot(1+cooper.M,1,i+2)
     ax.plot(t[:-1],[la.norm(primal['u'][i][:,k]) for k in range(cooper.N)],color='red',linewidth=norm_linewidth,label='$||u_%d||_2$'%(i+1))
     ax.plot(t[:-1],np.array(primal['sigma'][i]),color='orange',linestyle='none',marker='.',markersize=sigma_marker_size,label='$\sigma_%d$'%(i+1))
+    ax.plot(t[:-1],np.array(primal['gamma'][i])*cooper.rho1,color='green',linestyle=':',linewidth=1,label='$\gamma_%d\\rho_1$'%(i+1))
+    ax.plot(t[:-1],np.array(primal['gamma'][i])*cooper.rho2,color='blue',linestyle=':',linewidth=1,label='$\gamma_%d\\rho_2$'%(i+1))
     ax.axhline(cooper.rho1,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0,label='$\\rho_1$, $\\rho_2$')
     ax.axhline(cooper.rho2,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0)
     ax.autoscale(tight=True)
@@ -284,7 +311,6 @@ plt.tight_layout()
 
 # Dual variable projections onto pointing sets
 norm_z = [np.array([la.norm(tools.project(misc['y'][k],cooper.C[i])) for k in range(cooper.N)]) for i in range(cooper.M)]
-#%%
 fig = plt.figure(5,figsize=(8,10))
 plt.clf()
 ax = fig.add_subplot(111)
@@ -293,3 +319,89 @@ for i in range(cooper.M):
 ax.legend()
 ax.set_xlabel('Time [s]')
 ax.set_ylabel('Projection onto $U_i$')
+
+#%% Plot dual problem constraints
+
+ik2idx = lambda i,k: k+i*cooper.N
+
+fig = plt.figure(6)
+plt.clf()
+ax = fig.add_subplot(111)
+constraint_values = [dual['lambda_rho2'][:,ik2idx(i,k)]-dual['lambda_rho1'][:,ik2idx(i,k)]-dual['lambda_sigma'][:,ik2idx(i,k)] for i in range(cooper.M) for k in range(cooper.N)]
+ax.plot(constraint_values)
+ax.set_title('$\lambda_k^{\\rho_2 i}-\lambda_k^{\\rho_1 i}-\lambda_k^{\\sigma i} = 0$')
+ax.set_xlabel('$i,k$ indices')
+ax.set_ylabel('Value')
+
+fig = plt.figure(7)
+plt.clf()
+ax = fig.add_subplot(111)
+constraint_values = [dual['lambda_rho1'][:,ik2idx(i,k)]*cooper.rho1-dual['lambda_rho2'][:,ik2idx(i,k)]*cooper.rho2+dual['lambda_gamma_high'][:,ik2idx(i,k)]-dual['lambda_gamma_low'][:,ik2idx(i,k)]+dual['lambda_sum_gamma'][:,k] for i in range(cooper.M) for k in range(cooper.N)]
+ax.plot(constraint_values)
+ax.set_title('$\lambda_k^{\\rho_1 i}\\rho_1-\lambda_k^{\\rho_2 i}\\rho_2+\lambda_k^{\\bar\gamma i}-\lambda_k^{\underbar{\gamma} i}+\lambda_k^{\\sum\gamma} = 0$')
+ax.set_xlabel('$i,k$ indices')
+ax.set_ylabel('Value')
+
+fig = plt.figure(8)
+plt.clf()
+ax = fig.add_subplot(111)
+constraint_values = [dual['nu_x'][:,k-1]-cooper.Ad.T.dot(dual['nu_x'][:,k]) for k in range(1,cooper.N)]
+ax.plot(constraint_values)
+ax.set_title('$\\nu_{k-1}^x-A^T\\nu_{k}^x=0$')
+ax.set_xlabel('$i,k$ indices')
+ax.set_ylabel('Value')
+
+fig = plt.figure(9)
+plt.clf()
+ax = fig.add_subplot(111)
+constraint_values = dual['nu_x'][:,cooper.N-1]+dual['nu_xN'].flatten()
+ax.plot(constraint_values)
+ax.set_title('$\\nu_{N-1}^x+\\nu^{x_N}=0$')
+ax.set_xlabel('$i,k$ indices')
+ax.set_ylabel('Value')
+
+fig = plt.figure(10)
+plt.clf()
+ax = fig.add_subplot(211)
+constraint_values = [la.norm(-cooper.C[i].T.dot(dual['lambda_u'][:,ik2idx(i,k)])+cooper.Bd.T.dot(dual['nu_x'][:,k]))-dual['lambda_sigma'][:,ik2idx(i,k)] for i in range(cooper.M) for k in range(cooper.N)]
+u_norm_values = np.concatenate([la.norm(primal['u'][i],axis=0) for i in range(len(primal['u']))])
+ax.plot(constraint_values)
+ax.fill_between(range(u_norm_values.size),(u_norm_values>1e-6)*np.min(constraint_values),
+                alpha=0.2,color='red',linewidth=0,step='mid',label='$\|\|u_k^i\|\|_2>0$')
+ax.set_title('$\|\| -C_i^T\lambda_k^{u i}+B^T\\nu_k^x \|\|_2- \lambda_k^{\\sigma i}\leq 0$')
+ax.set_ylabel('Value')
+ax.legend()
+ax = fig.add_subplot(212)
+constraint_values = [la.norm(-cooper.C[i].T.dot(dual['lambda_u'][:,ik2idx(i,k)])+cooper.Bd.T.dot(dual['nu_x'][:,k])) for i in range(cooper.M) for k in range(cooper.N)]
+u_norm_values = np.concatenate([la.norm(primal['u'][i],axis=0) for i in range(len(primal['u']))])
+ax.plot(constraint_values,label='lhs')
+ax.plot(dual['lambda_sigma'].T,label='rhs')
+ax.fill_between(range(u_norm_values.size),(u_norm_values>1e-6)*np.max(dual['lambda_sigma']),
+                alpha=0.2,color='red',linewidth=0,step='mid',label='$\|\|u_k^i\|\|_2>0$')
+ax.set_xlabel('$i,k$ indices')
+ax.set_ylabel('Value')
+ax.legend()
+
+fig = plt.figure(11)
+plt.clf()
+ax = fig.add_subplot(211)
+constraint_values = [cooper.rho2*la.norm(-cooper.C[i].T.dot(dual['lambda_u'][:,ik2idx(i,k)])+cooper.Bd.T.dot(dual['nu_x'][:,k]))-dual['lambda_gamma_high'][:,ik2idx(i,k)]+dual['lambda_gamma_low'][:,ik2idx(i,k)] for i in range(cooper.M) for k in range(cooper.N)]
+difference = np.empty((cooper.M,cooper.N))
+for i in range(cooper.M):
+    difference[i] = dual['lambda_sum_gamma'].flatten()-np.array(constraint_values).flatten()[i*cooper.N:(i+1)*cooper.N]
+mindiff = np.min(difference,axis=0)
+idxs = np.argmin(difference,axis=0)
+for i in range(cooper.M):
+    diffs = mindiff.copy()
+    diffs[idxs!=i] = np.nan
+    ax.plot(t[:-1],diffs,marker='.',label='argmin: $i=%d$'%(i+1))
+ax.set_title('$\\rho_2\|\| -C_i^T\lambda_k^{u i}+B^T\\nu_k^x \|\|_2-\lambda_k^{\\bar\gamma i}+\lambda_k^{\\underbar\gamma i}\leq \lambda_k^{\sum\gamma}$ $\\forall i=1,\dots,M,$ $k=0,\dots,N-1$')
+ax.set_ylabel('RHS-LHS minimum value')
+ax.legend()
+ax = fig.add_subplot(212)
+for i in range(cooper.M):
+    difference[i] = dual['lambda_sum_gamma'].flatten()-np.array(constraint_values).flatten()[i*cooper.N:(i+1)*cooper.N]
+    ax.plot(t[:-1],difference[i],label='$i=%d$'%(i+1))
+ax.set_xlabel('Time [s]')
+ax.set_ylabel('LHS value')
+ax.legend()
