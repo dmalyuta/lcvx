@@ -74,11 +74,11 @@ def solve(problem,tf_range,opt_tol=1e-2):
     """
     # Solve phase 1 problem
     f = lambda tf: problem.problem2(tf)[:2]
-    tf = golden(f,tf_range[0],tf_range[1],opt_tol)[0]
+    tf = golden(f,tf_range[0],tf_range[1],opt_tol)
     status,J,t,primal,dual,misc = problem.problem2(tf)
     if problem.zeta==1:
         f = lambda tf: problem.problem3(tf,J)[:2]
-        tf = golden(f,tf_range[0],tf,opt_tol)[0]
+        tf = golden(f,tf_range[0],tf,opt_tol)
         status,J,t,primal,dual,misc = problem.problem3(tf,J)
-
+    
     return J,t,primal,dual,misc

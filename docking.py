@@ -9,6 +9,7 @@ B. Acikmese -- ACL, University of Washington
 Copyright 2019 University of Washington. All rights reserved.
 """
 
+import pickle
 import numpy as np
 import numpy.linalg as la
 from numpy.linalg import matrix_power as mpow
@@ -22,34 +23,30 @@ import tools
 class Docker(lcvx.Problem,object):
     def __init__(self):
         super(Docker, self).__init__()
-        cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=1000)
+        cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=100)
         
         # Boundary conditions
         r0 = np.array([5.,5.,1e2])
         v0 = np.array([0.,0.,0.])
         rf = np.array([0.,0.,0.])
-        vf = np.array([0.,0.,0.])
+        vf = np.array([0.,0.,-1e-2])
         
         # Physical parameters
-        omega = np.array([0.01*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.]) # [rad/s] Space station spin
-        self.rho1 = 0.#0.5e-2 # [m/s^2] Smallest control acceleration
-        self.rho2 = 0.5e-1 # [m/s^2] Largest control acceleration
+        omega = np.array([0.*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.]) # [rad/s] Space station spin
+        self.rho1 = 1e-3#0.5e-2 # [m/s^2] Smallest control acceleration
+        self.rho2 = 1e-2#0.5e-1 # [m/s^2] Largest control acceleration
         
         # RCS layout
-        cone_angle = 0.001 # [deg] Thruster cone angle
+        cone_angle = 0. # [deg] Thruster cone angle
         theta = phi = 30 # [deg] Basic pitch, roll
-#        cone_parameters = [dict(alpha=cone_angle,roll=phi,pitch=theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=-phi,pitch=theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=-phi,pitch=-theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=phi,pitch=-theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=phi+(180-2*phi),pitch=-theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=-phi-(180-2*phi),pitch=-theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=-phi-(180-2*phi),pitch=theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=phi+(180-2*phi),pitch=theta,yaw=0),
-#                           dict(alpha=cone_angle,roll=0,pitch=0,yaw=0),
-#                           dict(alpha=cone_angle,roll=180,pitch=0,yaw=0)]
-        cone_parameters = [dict(alpha=cone_angle,roll=0,pitch=0,yaw=0),
-                           dict(alpha=cone_angle,roll=180,pitch=0,yaw=0),
+        cone_parameters = [dict(alpha=cone_angle,roll=phi,pitch=theta,yaw=0),
+                           dict(alpha=cone_angle,roll=-phi,pitch=theta,yaw=0),
+                           dict(alpha=cone_angle,roll=-phi,pitch=-theta,yaw=0),
+                           dict(alpha=cone_angle,roll=phi,pitch=-theta,yaw=0),
+                           dict(alpha=cone_angle,roll=phi+(180-2*phi),pitch=-theta,yaw=0),
+                           dict(alpha=cone_angle,roll=-phi-(180-2*phi),pitch=-theta,yaw=0),
+                           dict(alpha=cone_angle,roll=-phi-(180-2*phi),pitch=theta,yaw=0),
+                           dict(alpha=cone_angle,roll=phi+(180-2*phi),pitch=theta,yaw=0),
                            dict(alpha=cone_angle,roll=90,pitch=0,yaw=0),
                            dict(alpha=cone_angle,roll=-90,pitch=0,yaw=0),
                            dict(alpha=cone_angle,roll=0,pitch=90,yaw=0),
@@ -57,7 +54,7 @@ class Docker(lcvx.Problem,object):
         self.C = [tools.make_cone(**param) for param in cone_parameters]
         self.Cn = [tools.make_cone(normal=True,**param) for param in cone_parameters]
         self.M = len(self.C) # Number of thrusters
-        K = 1 # How many thrusters can be simultaneously active
+        self.K = 4 # How many thrusters can be simultaneously active
         
         # Setup dynamical system
         S = lambda w: np.array([[0,-w[2],w[1]],[w[2],0,-w[0]],[-w[1],w[0],0]])
@@ -74,15 +71,18 @@ class Docker(lcvx.Problem,object):
         Du = np.diag([self.rho2 for _ in range(nu)])
         
         # Optimization problem common parts
-        self.N = 100 # Temporal solution
+        self.N = 300 # Temporal solution
         x = [cvx.Parameter(nx)]+[Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
+        xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
         u = [[Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
         sigma = [cvx.Variable(self.N) for _ in range(self.M)]
         gamma = [cvx.Variable(self.N) for _ in range(self.M)]
         dt = cvx.Parameter()
+        J2 = cvx.Parameter()
         
-        self.zeta = 0
-        cost_p2 = cvx.Minimize(dt*self.N)
+        self.zeta = 1
+        cost_p2 = dt*self.N/100.+xi[-1]
+        cost_p3 = dt*self.N+0.01*xi[-1] # but do golden search with dt*self.N
         
         self.constraints = []
         self.dual2idx = dict()
@@ -106,19 +106,38 @@ class Docker(lcvx.Problem,object):
                 self.dual2idx[dual] += range(idx_start,idx_end)
         
         add_constraint([x[k+1] == A*x[k]+B*sum([u[i][k] for i in range(self.M)]) for k in range(self.N)],'nu_x')
+        add_constraint([xi[k+1] == xi[k]+dt*sum([sigma[i][k] for i in range(self.M)]) for k in range(self.N)],'nu_xi')
         x[0].value = np.concatenate([r0,v0])
+        xi[0].value = 0
         add_constraint([x[-1] == np.concatenate([rf,vf])],'nu_xN')
         for i in range(self.M):
-            add_constraint([cvx.norm2(u[i][k]) <= sigma[i][k] for k in range(self.N)],'lambda_sigma')
+            add_constraint([cvx.norm(u[i][k]) <= sigma[i][k] for k in range(self.N)],'lambda_sigma')
             add_constraint([gamma[i][k]*self.rho1 <= sigma[i][k] for k in range(self.N)],'lambda_rho1')
             add_constraint([sigma[i][k] <= gamma[i][k]*self.rho2 for k in range(self.N)],'lambda_rho2')
             add_constraint([gamma[i][k] >= 0 for k in range(self.N)],'lambda_gamma_low')
             add_constraint([gamma[i][k] <= 1 for k in range(self.N)],'lambda_gamma_high')
             add_constraint([self.C[i]*u[i][k] <= 0 for k in range(self.N)],'lambda_u')
-        add_constraint([sum([gamma[i][k] for i in range(self.M)]) <= K for k in range(self.N)],'lambda_sum_gamma')
+        add_constraint([sum([gamma[i][k] for i in range(self.M)]) <= self.K for k in range(self.N)],'lambda_sum_gamma')
         
         # Problem 2 oracle
-        p2 = cvx.Problem(cost_p2,self.constraints)
+        def extract_variables():
+            # Primal variables
+            primal = dict()
+            primal['x'] = np.column_stack([tools.cvx2arr(x[k]) for k in range(self.N+1)])
+            primal['u'] = [np.column_stack([tools.cvx2arr(u[i][k]) for k in range(self.N)]) for i in range(self.M)]
+            primal['sigma'] = [np.array([sigma[i][k].value for k in range(self.N)]) for i in range(self.M)]
+            primal['gamma'] = [np.array([gamma[i][k].value for k in range(self.N)]) for i in range(self.M)]
+            # Dual variables
+            dual = dict()
+            for name in cooper.dual2idx.keys():
+                dual[name] = np.column_stack([tools.cvx2arr(self.constraints[k],dual=True) for k in self.dual2idx[name]])
+            # Other (derived) variables
+            misc = dict()
+            misc['y'] = np.row_stack([self.Bd.T.dot(dual['nu_x'][:,k]) for k in range(self.N)])
+            return primal,dual,misc
+        
+        p2 = cvx.Problem(cvx.Minimize(cost_p2),self.constraints)
+        
         def problem2(tf):
             dt.value = tf/float(self.N)
             A.value,B.value = tools.discretize(Ac,Bc,dt.value)
@@ -126,36 +145,53 @@ class Docker(lcvx.Problem,object):
             self.Bd = np.array(B.value)
             
             t = np.array([k*dt.value for k in range(self.N+1)])
+            
             try:
                 J = p2.solve(**cvx_opts)
                 if p2.status=='infeasible':
-                    return p2.status,J,t,None,None,None
+                    return p2.status,np.inf,t,None,None,None
                 else:
                     # All good, return solution
-                    # Primal variables
-                    primal = dict()
-                    primal['x'] = np.column_stack([tools.cvx2arr(x[k]) for k in range(self.N+1)])
-                    primal['u'] = [np.column_stack([tools.cvx2arr(u[i][k]) for k in range(self.N)]) for i in range(self.M)]
-                    primal['sigma'] = [np.array([sigma[i][k].value for k in range(self.N)]) for i in range(self.M)]
-                    primal['gamma'] = [np.array([gamma[i][k].value for k in range(self.N)]) for i in range(self.M)]
-                    # Dual variables
-                    dual = dict()
-                    for name in cooper.dual2idx.keys():
-                        dual[name] = np.column_stack([tools.cvx2arr(self.constraints[k],dual=True) for k in self.dual2idx[name]])
-                    # Other (derived) variables
-                    misc = dict()
-                    misc['y'] = np.row_stack([np.array(B.value).T.dot(dual['nu_x'][:,k]) for k in range(self.N)])
+                    primal,dual,misc = extract_variables()
                     return p2.status,J,t,primal,dual,misc
             except cvx.SolverError:
                 return 'cvx.SolverError',np.inf,t,None,None,None
             
         self.problem2 = lambda tf: problem2(tf)
         
+        # Problem 3 oracle
+        p3 = cvx.Problem(cvx.Minimize(cost_p3),self.constraints+[cost_p2<=J2])
+        
+        def problem3(tf,J):
+            dt.value = tf/float(self.N)
+            J2.value = J
+            
+            A.value,B.value = tools.discretize(Ac,Bc,dt.value)
+            self.Ad = np.array(A.value)
+            self.Bd = np.array(B.value)
+            
+            t = np.array([k*dt.value for k in range(self.N+1)])
+            
+            try:
+                J = p3.solve(**cvx_opts)
+                if p3.status=='infeasible':
+                    return p3.status,np.inf,t,None,None,None
+                else:
+                    # All good, return solution
+                    primal,dual,misc = extract_variables()
+                    cost_mintime = tf
+                    return p3.status,cost_mintime,t,primal,dual,misc
+            except cvx.SolverError:
+                return 'cvx.SolverError',np.inf,t,None,None,None
+            
+        self.problem3 = lambda tf,J2: problem3(tf,J2)
+
 cooper = Docker()
-#import sys
-#sys.exit()
-J,t,primal,dual,misc = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-3)
-#J,t,primal,dual,misc = lcvx.solve(cooper,[281.04]*2,opt_tol=1e-2) #293.48
+J,t,primal,dual,misc = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-4)
+
+pickle.dump(dict(rho1=cooper.rho1,rho2=cooper.rho2,M=cooper.M,
+                 K=cooper.K,C=cooper.C,t=t,primal=primal,dual=dual,misc=misc),
+            open('solution.pkl','wb'))
 
 #%% Plot the solution
 
@@ -259,10 +295,11 @@ plt.clf()
 ax = fig.add_subplot(1+cooper.M,1,1)
 ax.plot(t[:-1],[sum([la.norm(primal['u'][i][:,k]) for i in range(cooper.M)]) for k in range(cooper.N)],color='gray',linestyle='--',linewidth=norm_linewidth,label='$\sum_{i=1}^M||u_i||_2$')
 ax.plot(t[:-1],np.array(sum(primal['sigma'])),color='orange',linestyle='none',marker='.',markersize=sigma_marker_size,label='$\sum_{i=1}^M\sigma_i$')
-ax.axhline(cooper.rho1*3600.**2/1e3,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0,label='$\\rho_1$, $\\rho_2$')
-ax.axhline(cooper.rho2*3600.**2/1e3,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0)
+ax.axhline(cooper.rho1,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0,label='$\\rho_1$, $\\rho_2$')
+for i in range(cooper.K):
+    ax.axhline((i+1)*cooper.rho2,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0)
 ax.autoscale(tight=True)
-ax.set_ylim([0,cooper.rho2*1.1*3600.**2/1e3])
+ax.set_ylim([0,cooper.rho2*cooper.K*1.1])
 ax.set_ylabel('$\|u(t)\|_2$')
 #ax.legend(prop={'size':8})
 ax.get_xaxis().set_ticklabels([])
@@ -277,7 +314,7 @@ for i in range(cooper.M):
     ax.axhline(cooper.rho2,color='gray',linestyle='--',linewidth=norm_linewidth,zorder=0)
     ax.autoscale(tight=True)
     ax.set_ylim([0,cooper.rho2*1.1])
-    ax.set_ylabel('$\|u_%d(t)\|_2$'%(i+1))
+    ax.set_ylabel('$\|u_{%d}(t)\|_2$'%(i+1))
     if i==cooper.M-1:
         ax.set_xlabel('Time [s]')
     else:
@@ -389,11 +426,10 @@ constraint_values = [cooper.rho2*la.norm(-cooper.C[i].T.dot(dual['lambda_u'][:,i
 difference = np.empty((cooper.M,cooper.N))
 for i in range(cooper.M):
     difference[i] = dual['lambda_sum_gamma'].flatten()-np.array(constraint_values).flatten()[i*cooper.N:(i+1)*cooper.N]
-mindiff = np.min(difference,axis=0)
-idxs = np.argmin(difference,axis=0)
+idxs = np.argsort(difference,axis=0)
 for i in range(cooper.M):
-    diffs = mindiff.copy()
-    diffs[idxs!=i] = np.nan
+    diffs = difference[i].copy()
+    diffs[np.all(idxs[:cooper.K]!=i,axis=0)] = np.nan
     ax.plot(t[:-1],diffs,marker='.',label='argmin: $i=%d$'%(i+1))
 ax.set_title('$\\rho_2\|\| -C_i^T\lambda_k^{u i}+B^T\\nu_k^x \|\|_2-\lambda_k^{\\bar\gamma i}+\lambda_k^{\\underbar\gamma i}\leq \lambda_k^{\sum\gamma}$ $\\forall i=1,\dots,M,$ $k=0,\dots,N-1$')
 ax.set_ylabel('RHS-LHS minimum value')
@@ -405,3 +441,14 @@ for i in range(cooper.M):
 ax.set_xlabel('Time [s]')
 ax.set_ylabel('LHS value')
 ax.legend()
+
+#%% Other plots
+
+fig = plt.figure(12)
+plt.clf()
+ax = fig.add_subplot(111)
+t_range = np.linspace(150,350,20)
+J = tools.cost_profile(oracle = lambda tf: cooper.problem2(tf)[1],t_range = t_range)
+ax.plot(t_range,J)
+ax.set_xlabel('Final time [s]')
+ax.set_ylabel('Optimal cost value')

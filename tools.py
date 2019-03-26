@@ -7,6 +7,7 @@ B. Acikmese -- ACL, University of Washington
 Copyright 2019 University of Washington. All rights reserved.
 """
 
+import sys
 import numpy as np
 import numpy.linalg as la
 import scipy.linalg as sla
@@ -34,8 +35,6 @@ def golden(f,lb,ub,tol):
     -------
     x : float
         Minimum location, \in [lb,ub].
-    fx : float
-        Oracle value.
     """
     # Maintains the interval [x1,(x2,x4),x3] where [x1,x3] brackets the
     # minimum and x2, x4 are intermediate points used to update the bracket
@@ -47,26 +46,52 @@ def golden(f,lb,ub,tol):
         x[1] = ub
     widgets=['[%.2f,%.2f,%.2f]'%(x[0],np.nan,x[2]),' ',progressbar.Bar(),' (', progressbar.ETA(), ') ']
     for i in progressbar.progressbar(range(int(icount)),widgets=widgets):
-        if np.isnan(x[1]):
-            x[1] = (phi*x[0]+x[2])/(phi+1.)
-        x4 = x[0]+x[2]-x[1]
-        status,fx4 = f(x4)
-        if np.isnan(fx2):
-            _,fx2 = f(x[1])
-        if fx4<=fx2:
-            x[0] = x[1]
-            x[1] = x4
-            fx2 = fx4
-        else:
-            x[2] = x[0]
-            x[0] = x4
-        y = np.sort(x)
-        widgets[0] = '[%.2f,%.2f,%.2f] {%s}'%(y[0],y[1],y[2],status)
+        try:
+            if np.isnan(x[1]):
+                x[1] = (phi*x[0]+x[2])/(phi+1.)
+                _,fx2 = f(x[1])
+            x4 = x[0]+x[2]-x[1]
+            status,fx4 = f(x4)
+            if fx4<=fx2:
+                x[0] = x[1]
+                x[1] = x4
+                fx2 = fx4
+            else:
+                x[2] = x[0]
+                x[0] = x4
+            y = np.sort(x)
+            widgets[0] = '[%.2f,%.2f,%.2f] {%s}'%(y[0],y[1],y[2],status)
+        except KeyboardInterrupt:
+            sys.exit()
     
-    x = x[1]#x[2] if x[0]<x[2] else x[0]
-    fx = f(x)
+    # Get the location that is feasible, starting from the upper bound
+    y = np.sort(x)
+    for i in range(2,-1,-1):
+        if f(y[i])[0]=='optimal' or f(y[i])[0]=='optimal_inaccurate':
+            x = y[i]
+            break
     
-    return x,fx
+    return x
+
+def cost_profile(oracle,t_range):
+    """
+    Get the cost function profile.
+    
+    Parameters
+    ----------
+    oracle : callable
+        Call signature cost=oracle(time) where time (float) is the final time
+        and cost (float) is the optimal cost.
+    t_range : list
+        List of times to compute the cost at.
+        
+    Returns
+    -------
+    J : array
+        Array of optimal cost values at those times.
+    """
+    J = np.array([oracle(t) for t in progressbar.progressbar(t_range)])
+    return J
 
 def discretize(Ac,Bc,dt):
     """Dynamics discretization"""
@@ -164,7 +189,8 @@ def make_cone(alpha,roll,pitch,yaw,normal=False):
     C_base = np.row_stack([Rx(angle+alpha/2.).dot(nhat_base),
                            Rx(-angle-alpha/2.).dot(nhat_base),
                            Ry(angle+alpha/2.).dot(nhat_base),
-                           Ry(-angle-alpha/2.).dot(nhat_base)])
+                           Ry(-angle-alpha/2.).dot(nhat_base),
+                           -nhat_base])
     R = Rz(yaw).dot(Ry(pitch)).dot(Rx(roll)) # Overall active rotation
     C = C_base.dot(R.T)
     return C
