@@ -38,6 +38,8 @@ class Problem:
             Dual variables.
         misc : dict
             Other variables.
+        solver_time : float
+            Optimizer time.
         """
         raise NotImplementedError('problem2 not implemeted!')
         
@@ -71,14 +73,23 @@ def solve(problem,tf_range,opt_tol=1e-2):
     -------
     [J,t,primal,dual,misc] : [float,array,dict,dict,dict]
         Same meaning as the output of problem.problem2 and problem.problem3.
+    total_solver_time : float
+        The sum of solver times over all calls to the optimizer.
     """
     # Solve phase 1 problem
-    f = lambda tf: problem.problem2(tf)[:2]
-    tf = golden(f,tf_range[0],tf_range[1],opt_tol)
-    status,J,t,primal,dual,misc = problem.problem2(tf)
+    def f(tf):
+        status,J,t,primal,dual,misc,solver_time = problem.problem2(tf)
+        return status,J,solver_time
+    tf,golden_time = golden(f,tf_range[0],tf_range[1],opt_tol)
+    status,J,t,primal,dual,misc,solver_time = problem.problem2(tf)
+    total_solver_time = golden_time+solver_time
     if problem.zeta==1:
-        f = lambda tf: problem.problem3(tf,J)[:2]
-        tf = golden(f,tf_range[0],tf,opt_tol)
-        status,J,t,primal,dual,misc = problem.problem3(tf,J)
+        def f(tf,J2):
+            status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J2)
+            return status,J,solver_time
+        f3 = lambda tf: f(tf,J)
+        tf,golden_time = golden(f3,tf_range[0],tf,opt_tol)
+        status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J)
+        total_solver_time += golden_time+solver_time
     
-    return J,t,primal,dual,misc
+    return J,t,primal,dual,misc,total_solver_time

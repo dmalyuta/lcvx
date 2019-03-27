@@ -21,7 +21,7 @@ save_pdf = False # True to save figure PDFs
 
 #%% Load data
 
-solution = pickle.load(open('solution.pkl','rb'))
+solution = pickle.load(open('solution_micp.pkl','rb'))
 t,primal,dual,misc = solution['t'],solution['primal'],solution['dual'],solution['misc']
 rho1,rho2,M,K,C = solution['rho1'],solution['rho2'],solution['M'],solution['K'],solution['C']
 

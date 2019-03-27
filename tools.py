@@ -35,9 +35,12 @@ def golden(f,lb,ub,tol):
     -------
     x : float
         Minimum location, \in [lb,ub].
+    solver_time : float
+        Sum of solver times for all calls to the optimizer
     """
     # Maintains the interval [x1,(x2,x4),x3] where [x1,x3] brackets the
     # minimum and x2, x4 are intermediate points used to update the bracket
+    solver_time = 0
     x = [lb,np.nan,ub]
     fx2 = np.nan
     phi = (1+np.sqrt(5))/2. # Golden ratio
@@ -49,9 +52,11 @@ def golden(f,lb,ub,tol):
         try:
             if np.isnan(x[1]):
                 x[1] = (phi*x[0]+x[2])/(phi+1.)
-                _,fx2 = f(x[1])
+                _,fx2,time = f(x[1])
+                solver_time += time
             x4 = x[0]+x[2]-x[1]
-            status,fx4 = f(x4)
+            status,fx4,time = f(x4)
+            solver_time += time
             if fx4<=fx2:
                 x[0] = x[1]
                 x[1] = x4
@@ -67,11 +72,13 @@ def golden(f,lb,ub,tol):
     # Get the location that is feasible, starting from the upper bound
     y = np.sort(x)
     for i in range(2,-1,-1):
-        if f(y[i])[0]=='optimal' or f(y[i])[0]=='optimal_inaccurate':
+        status,_,time = f(y[i])
+        solver_time += time
+        if status=='optimal' or status=='optimal_inaccurate':
             x = y[i]
             break
     
-    return x
+    return x,solver_time
 
 def cost_profile(oracle,t_range):
     """

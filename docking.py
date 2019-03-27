@@ -10,6 +10,7 @@ B. Acikmese -- ACL, University of Washington
 Copyright 2019 University of Washington. All rights reserved.
 """
 
+import time
 import pickle
 import numpy as np
 import numpy.linalg as la
@@ -19,10 +20,22 @@ import cvxpy as cvx
 import lcvx
 import tools
 
+#%% Problem definition
+
 class Docker(lcvx.Problem,object):
-    def __init__(self):
+    def __init__(self,micp=False):
+        """
+        Parameters
+        ----------
+        micp : bool, optional
+            Set to ``True`` to solve the problem via mixed-integer programming.
+        """
         super(Docker, self).__init__()
-        cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=100)
+        
+        if micp:
+            cvx_opts = dict(solver=cvx.GUROBI,verbose=False,Presolve=0,LogFile='',threads=1)
+        else:
+            cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=100)
         
         # Physical parameters
         self.omega = np.array([0.*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.]) # [rad/s] Space station spin
@@ -76,7 +89,7 @@ class Docker(lcvx.Problem,object):
         xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
         u = [[Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
         sigma = [cvx.Variable(self.N) for _ in range(self.M)]
-        gamma = [cvx.Variable(self.N) for _ in range(self.M)]
+        gamma = [cvx.Bool(self.N) if micp else cvx.Variable(self.N) for _ in range(self.M)]
         dt = cvx.Parameter()
         J2 = cvx.Parameter()
         
@@ -114,29 +127,31 @@ class Docker(lcvx.Problem,object):
             add_constraint([cvx.norm(u[i][k]) <= sigma[i][k] for k in range(self.N)],'lambda_sigma')
             add_constraint([gamma[i][k]*self.rho1 <= sigma[i][k] for k in range(self.N)],'lambda_rho1')
             add_constraint([sigma[i][k] <= gamma[i][k]*self.rho2 for k in range(self.N)],'lambda_rho2')
-            add_constraint([gamma[i][k] >= 0 for k in range(self.N)],'lambda_gamma_low')
-            add_constraint([gamma[i][k] <= 1 for k in range(self.N)],'lambda_gamma_high')
+            if not micp:
+                add_constraint([gamma[i][k] >= 0 for k in range(self.N)],'lambda_gamma_low')
+                add_constraint([gamma[i][k] <= 1 for k in range(self.N)],'lambda_gamma_high')
             add_constraint([self.C[i]*u[i][k] <= 0 for k in range(self.N)],'lambda_u')
         add_constraint([sum([gamma[i][k] for i in range(self.M)]) <= self.K for k in range(self.N)],'lambda_sum_gamma')
         
         # Problem 2 oracle
+        p2 = cvx.Problem(cvx.Minimize(cost_p2),self.constraints)
+        
         def extract_variables():
-            # Primal variables
             primal = dict()
+            dual = dict()
+            misc = dict()
+            # Primal variables
             primal['x'] = np.column_stack([tools.cvx2arr(x[k]) for k in range(self.N+1)])
             primal['u'] = [np.column_stack([tools.cvx2arr(u[i][k]) for k in range(self.N)]) for i in range(self.M)]
             primal['sigma'] = [np.array([sigma[i][k].value for k in range(self.N)]) for i in range(self.M)]
             primal['gamma'] = [np.array([gamma[i][k].value for k in range(self.N)]) for i in range(self.M)]
             # Dual variables
-            dual = dict()
-            for name in cooper.dual2idx.keys():
-                dual[name] = np.column_stack([tools.cvx2arr(self.constraints[k],dual=True) for k in self.dual2idx[name]])
-            # Other (derived) variables
-            misc = dict()
-            misc['y'] = np.row_stack([self.Bd.T.dot(dual['nu_x'][:,k]) for k in range(self.N)])
+            if not micp:
+                for name in self.dual2idx.keys():
+                    dual[name] = np.column_stack([tools.cvx2arr(self.constraints[k],dual=True) for k in self.dual2idx[name]])
+                # Other (derived) variables
+                misc['y'] = np.row_stack([self.Bd.T.dot(dual['nu_x'][:,k]) for k in range(self.N)])
             return primal,dual,misc
-        
-        p2 = cvx.Problem(cvx.Minimize(cost_p2),self.constraints)
         
         def problem2(tf):
             dt.value = tf/float(self.N)
@@ -148,14 +163,15 @@ class Docker(lcvx.Problem,object):
             
             try:
                 J = p2.solve(**cvx_opts)
+                solver_time = p2.solver_stats.solve_time
                 if p2.status=='infeasible':
-                    return p2.status,np.inf,t,None,None,None
+                    return p2.status,np.inf,t,None,None,None,solver_time
                 else:
                     # All good, return solution
                     primal,dual,misc = extract_variables()
-                    return p2.status,J,t,primal,dual,misc
+                    return p2.status,J,t,primal,dual,misc,solver_time
             except cvx.SolverError:
-                return 'cvx.SolverError',np.inf,t,None,None,None
+                return 'error',np.inf,t,None,None,None,0.
             
         self.problem2 = lambda tf: problem2(tf)
         
@@ -174,35 +190,50 @@ class Docker(lcvx.Problem,object):
             
             try:
                 J = p3.solve(**cvx_opts)
+                solver_time = p3.solver_stats.solve_time
                 if p3.status=='infeasible':
-                    return p3.status,np.inf,t,None,None,None
+                    return p3.status,np.inf,t,None,None,None,solver_time
                 else:
                     # All good, return solution
                     primal,dual,misc = extract_variables()
                     cost_mintime = tf
-                    return p3.status,cost_mintime,t,primal,dual,misc
+                    return p3.status,cost_mintime,t,primal,dual,misc,solver_time
             except cvx.SolverError:
-                return 'cvx.SolverError',np.inf,t,None,None,None
-            
+                return 'error',np.inf,t,None,None,None,0.
+        
         self.problem3 = lambda tf,J2: problem3(tf,J2)
+        
+def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
+    """
+    Post-process and save the 
+    """
+    # Compute optimal cost profile vs. final time
+    cost_profile_t = np.linspace(150,350,20)
+    cost_profile_J = tools.cost_profile(oracle = lambda tf: pbm.problem2(tf)[1],t_range=cost_profile_t)
+
+    # Compute state and input in the inertial frame
+    nrot = pbm.omega/la.norm(pbm.omega)
+    w = la.norm(pbm.omega)
+    nx = np.array([[0,-nrot[2],nrot[1]],[nrot[2],0,-nrot[0]],[-nrot[1],nrot[0],0]])
+    nnT = np.outer(nrot,nrot)
+    R = lambda t: (np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT)
+    primal['x_inertial'] = np.row_stack([np.column_stack([R(t[k]).dot(primal['x'][:3,k]) for k in range(pbm.N+1)]),
+                                         np.column_stack([R(t[k]).dot(primal['x'][3:,k]) for k in range(pbm.N+1)])])
+    primal['u_inertial'] = [np.column_stack([R(t[k]).dot(primal['u'][i][:,k]) for k in range(pbm.N)]) for i in range(pbm.M)]
+    
+    pickle.dump(dict(rho1=pbm.rho1,rho2=pbm.rho2,N=pbm.N,M=pbm.M,K=pbm.K,
+                     A=pbm.Ad,B=pbm.Bd,C=pbm.C,
+                     J=J,t=t,primal=primal,dual=dual,misc=misc,solver_time=solver_time,
+                     cost_profile=cost_profile_J,cost_profile_t=cost_profile_t),open(filename,'wb'))
+
+#%% Lossless convexification solution
 
 cooper = Docker()
-J,t,primal,dual,misc = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-4)
-Jt = np.linspace(150,350,20)
-J = tools.cost_profile(oracle = lambda tf: cooper.problem2(tf)[1],t_range=Jt)
+J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-4)
+post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_lcvx.pkl')
 
-##%% Post-process data
+#%% Mixed-integer solution
 
-# Compute state and input in the inertial frame
-nrot = cooper.omega/la.norm(cooper.omega)
-w = la.norm(cooper.omega)
-nx = np.array([[0,-nrot[2],nrot[1]],[nrot[2],0,-nrot[0]],[-nrot[1],nrot[0],0]])
-nnT = np.outer(nrot,nrot)
-R = lambda t: (np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT)
-primal['x_inertial'] = np.row_stack([np.column_stack([R(t[k]).dot(primal['x'][:3,k]) for k in range(cooper.N+1)]),
-                                     np.column_stack([R(t[k]).dot(primal['x'][3:,k]) for k in range(cooper.N+1)])])
-primal['u_inertial'] = [np.column_stack([R(t[k]).dot(primal['u'][i][:,k]) for k in range(cooper.N)]) for i in range(cooper.M)]
-
-pickle.dump(dict(rho1=cooper.rho1,rho2=cooper.rho2,N=cooper.N,M=cooper.M,
-                 A=cooper.Ad,B=cooper.Bd,J=J,Jt=Jt,
-                 K=cooper.K,C=cooper.C,t=t,primal=primal,dual=dual,misc=misc),open('solution.pkl','wb'))
+cooper = Docker(micp=True)
+J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-4)
+post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_micp.pkl')
