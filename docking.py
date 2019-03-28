@@ -10,7 +10,6 @@ B. Acikmese -- ACL, University of Washington
 Copyright 2019 University of Washington. All rights reserved.
 """
 
-import time
 import pickle
 import numpy as np
 import numpy.linalg as la
@@ -32,10 +31,8 @@ class Docker(lcvx.Problem,object):
         """
         super(Docker, self).__init__()
         
-        if micp:
-            cvx_opts = dict(solver=cvx.GUROBI,verbose=False,Presolve=0,LogFile='',threads=1)
-        else:
-            cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=100)
+        cvx_opts = dict(solver=cvx.GUROBI,verbose=False,Presolve=1,LogFile='',threads=1)
+        #cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=100)
         
         # Physical parameters
         self.omega = np.array([0.*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.]) # [rad/s] Space station spin
@@ -93,7 +90,7 @@ class Docker(lcvx.Problem,object):
         dt = cvx.Parameter()
         J2 = cvx.Parameter()
         
-        self.zeta = 1
+        self.zeta = 0
         cost_p2 = dt*self.N/100.+xi[-1]
         cost_p3 = dt*self.N+0.01*xi[-1] # but do golden search with dt*self.N
         
@@ -202,21 +199,21 @@ class Docker(lcvx.Problem,object):
                 return 'error',np.inf,t,None,None,None,0.
         
         self.problem3 = lambda tf,J2: problem3(tf,J2)
-        
+
 def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
     """
     Post-process and save the 
     """
     # Compute optimal cost profile vs. final time
-    cost_profile_t = np.linspace(150,350,20)
-    cost_profile_J = tools.cost_profile(oracle = lambda tf: pbm.problem2(tf)[1],t_range=cost_profile_t)
+    cost_profile_t = []#np.linspace(150,350,20)
+    cost_profile_J = []#tools.cost_profile(oracle = lambda tf: pbm.problem2(tf)[1],t_range=cost_profile_t)
 
     # Compute state and input in the inertial frame
     nrot = pbm.omega/la.norm(pbm.omega)
     w = la.norm(pbm.omega)
     nx = np.array([[0,-nrot[2],nrot[1]],[nrot[2],0,-nrot[0]],[-nrot[1],nrot[0],0]])
     nnT = np.outer(nrot,nrot)
-    R = lambda t: (np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT)
+    R = lambda t: ((np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT)).T
     primal['x_inertial'] = np.row_stack([np.column_stack([R(t[k]).dot(primal['x'][:3,k]) for k in range(pbm.N+1)]),
                                          np.column_stack([R(t[k]).dot(primal['x'][3:,k]) for k in range(pbm.N+1)])])
     primal['u_inertial'] = [np.column_stack([R(t[k]).dot(primal['u'][i][:,k]) for k in range(pbm.N)]) for i in range(pbm.M)]
@@ -229,11 +226,11 @@ def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
 #%% Lossless convexification solution
 
 cooper = Docker()
-J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-4)
-post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_lcvx.pkl')
+J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_lcvx_presolve.pkl')
 
 #%% Mixed-integer solution
 
 cooper = Docker(micp=True)
-J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[0.,1000.],opt_tol=1e-4)
-post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_micp.pkl')
+J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_micp_presolve.pkl')

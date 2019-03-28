@@ -16,19 +16,30 @@ matplotlib.rcParams.update({'font.size': 14})
 
 #%% User choices
 
-in_inertial = False # True to plot trajectory in the inertial frame
-save_pdf = False # True to save figure PDFs
+in_inertial = True # True to plot trajectory in the inertial frame
+save_pdf = True # True to save figure PDFs
 
 #%% Load data
 
-solution = pickle.load(open('solution_micp.pkl','rb'))
+solution = pickle.load(open('solution_lcvx.pkl','rb'))
 t,primal,dual,misc = solution['t'],solution['primal'],solution['dual'],solution['misc']
 rho1,rho2,M,K,C = solution['rho1'],solution['rho2'],solution['M'],solution['K'],solution['C']
 
 #%% Trajectory
 
-xtraj = primal['x_inertial'] if in_inertial else primal['x']
-utraj = primal['u_inertial'] if in_inertial else primal['u']
+omega = np.array([0.*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.])
+N = 300
+nrot = omega/la.norm(omega)
+w = la.norm(omega)
+nx = np.array([[0,-nrot[2],nrot[1]],[nrot[2],0,-nrot[0]],[-nrot[1],nrot[0],0]])
+nnT = np.outer(nrot,nrot)
+R = lambda t: ((np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT))
+xtraj = np.row_stack([np.column_stack([R(t[k]).dot(primal['x'][:3,k]) for k in range(N+1)]),
+                      np.column_stack([R(t[k]).dot(primal['x'][3:,k])+np.cross(omega,R(t[k]).dot(primal['x'][:3,k])) for k in range(N+1)])])
+utraj = [np.column_stack([R(t[k]).dot(primal['u'][i][:,k]) for k in range(N)]) for i in range(M)]
+
+#xtraj = primal['x_inertial'] if in_inertial else primal['x']
+#utraj = primal['u_inertial'] if in_inertial else primal['u']
 
 init3d_style = dict(marker='.',markersize=7,color='green',zorder=100)
 init2d_style = dict(marker='.',markersize=7,color='green',zorder=90)
@@ -38,15 +49,15 @@ accel3d_style = dict(linewidth=0.25,color='blue',zorder=99)
 traj2d_style = dict(linewidth=1,color='gray')
 vel2d_style = dict(linewidth=0.25,color='red',alpha=0.5)
 accel2d_style = dict(linewidth=0.25,color='blue',alpha=0.5)
-vel_scale = 0.2*np.diag(xtraj[:3,0])
-accel_scale = 10*np.diag(xtraj[:3,0])
-proj_pos = [-20,-10,-40] if in_inertial else [-40,-40,-40]
-ax_lim_up = [20,20,120] if in_inertial else [20,20,120]
+vel_scale = (25 if in_inertial else 6)*np.eye(3)#np.diag(xtraj[:3,0])
+accel_scale = 3e2*np.eye(3)#np.diag(xtraj[:3,0])
+proj_pos = [-20,-10,-20] if in_inertial else [-40,-40,-40]
+ax_lim_up = [20,25,120] if in_inertial else [20,20,120]
 
 fig = plt.figure(1,figsize=[6,6.8])
 plt.clf()
 ax = fig.add_subplot(111,projection='3d')
-ax.view_init(elev=28,azim=49)
+ax.view_init(elev=23,azim=48)
 ax.plot([xtraj[0][0]],[xtraj[1][0]],[xtraj[2][0]],**init3d_style)
 ax.plot(xtraj[0],xtraj[1],xtraj[2],**traj3d_style)
 for k in range(xtraj.shape[1]):
