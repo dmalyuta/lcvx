@@ -4,3 +4,4 @@
 /sandbox/
 /**/figures/*
 !/figures/.keep
+/**/*.pkl
