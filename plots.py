@@ -1,5 +1,10 @@
 """
-Automatica plots
+Plots for the paper.
+
+D. Malyuta -- ACL, University of Washington
+B. Acikmese -- ACL, University of Washington
+
+Copyright 2019 University of Washington. All rights reserved.
 """
 
 import pickle
