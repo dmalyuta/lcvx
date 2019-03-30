@@ -1,6 +1,8 @@
 # Lossless convexification with a mixed-integer constraint
 
-![Optimal trajectory](./figures/optimal_trajectory.png)
+<p align="center">
+  <img width="300" src="/figures/optimal_trajectory.png?raw=true">
+</p>
 
 ## General Description
 
