@@ -1,6 +1,5 @@
 """
-Spacecraft docking to a spinning space station [1]. Solution using lossless
-convexification.
+Spacecraft docking to a spinning space station [1].
 
 [1] https://www.youtube.com/watch?v=c4tPQYNpW9k
 
@@ -32,12 +31,11 @@ class Docker(lcvx.Problem,object):
         super(Docker, self).__init__()
         
         cvx_opts = dict(solver=cvx.GUROBI,verbose=False,Presolve=1,LogFile='',threads=1)
-        #cvx_opts = dict(solver=cvx.ECOS,verbose=False,abstol=1e-8,max_iters=100)
         
         # Physical parameters
         self.omega = np.array([0.*2*np.pi/60.,0.*2*np.pi/60.,1.*2*np.pi/60.]) # [rad/s] Space station spin
-        self.rho1 = 1e-3#0.5e-2 # [m/s^2] Smallest control acceleration
-        self.rho2 = 1e-2#0.5e-1 # [m/s^2] Largest control acceleration
+        self.rho1 = 1e-3 # [m/s^2] Smallest control acceleration
+        self.rho2 = 1e-2 # [m/s^2] Largest control acceleration
         
         # Boundary conditions
         r0 = np.array([5.,5.,1e2])
@@ -62,6 +60,11 @@ class Docker(lcvx.Problem,object):
                            dict(alpha=cone_angle,roll=0,pitch=-90,yaw=0)]
         self.C = [tools.make_cone(**param) for param in cone_parameters]
         self.Cn = [tools.make_cone(normal=True,**param) for param in cone_parameters]
+        eps = np.sqrt(np.finfo(np.float64).eps) # Machine epsilon
+        for i in range(len(self.C)):
+            # Clean up small coefficients
+            self.C[i][np.abs(self.C[i])<eps]=0
+            self.Cn[i][np.abs(self.Cn[i])<eps]=0
         self.M = len(self.C) # Number of thrusters
         self.K = 4 # How many thrusters can be simultaneously active
         
@@ -85,13 +88,14 @@ class Docker(lcvx.Problem,object):
         x = [cvx.Parameter(nx)]+[Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
         xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
         u = [[Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
+        unorm = [cvx.Variable(self.N) for _ in range(self.M)]
         sigma = [cvx.Variable(self.N) for _ in range(self.M)]
         gamma = [cvx.Bool(self.N) if micp else cvx.Variable(self.N) for _ in range(self.M)]
         dt = cvx.Parameter()
         J2 = cvx.Parameter()
         
-        self.zeta = 0
-        cost_p2 = dt*self.N/100.+xi[-1]
+        self.zeta = 1 # minimum time: 0
+        cost_p2 = dt*self.N/100.+xi[-1] # minimum time: dt
         cost_p3 = dt*self.N+0.01*xi[-1] # but do golden search with dt*self.N
         
         self.constraints = []
@@ -121,7 +125,8 @@ class Docker(lcvx.Problem,object):
         xi[0].value = 0
         add_constraint([x[-1] == np.concatenate([rf,vf])],'nu_xN')
         for i in range(self.M):
-            add_constraint([cvx.norm(u[i][k]) <= sigma[i][k] for k in range(self.N)],'lambda_sigma')
+            add_constraint([unorm[i][k] <= sigma[i][k] for k in range(self.N)],'lambda_sigma')
+            add_constraint([u[i][k] == -unorm[i][k]*self.C[i][-1] for k in range(self.N)],'lambda_unorm')
             add_constraint([gamma[i][k]*self.rho1 <= sigma[i][k] for k in range(self.N)],'lambda_rho1')
             add_constraint([sigma[i][k] <= gamma[i][k]*self.rho2 for k in range(self.N)],'lambda_rho2')
             if not micp:
@@ -205,17 +210,17 @@ def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
     Post-process and save the 
     """
     # Compute optimal cost profile vs. final time
-    cost_profile_t = []#np.linspace(150,350,20)
-    cost_profile_J = []#tools.cost_profile(oracle = lambda tf: pbm.problem2(tf)[1],t_range=cost_profile_t)
+    cost_profile_t = np.linspace(150,350,20)
+    cost_profile_J = tools.cost_profile(oracle = lambda tf: pbm.problem2(tf)[1],t_range=cost_profile_t)
 
     # Compute state and input in the inertial frame
     nrot = pbm.omega/la.norm(pbm.omega)
     w = la.norm(pbm.omega)
     nx = np.array([[0,-nrot[2],nrot[1]],[nrot[2],0,-nrot[0]],[-nrot[1],nrot[0],0]])
     nnT = np.outer(nrot,nrot)
-    R = lambda t: ((np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT)).T
+    R = lambda t: ((np.cos(w*t)*np.eye(3)+np.sin(w*t)*nx+(1-np.cos(w*t))*nnT))
     primal['x_inertial'] = np.row_stack([np.column_stack([R(t[k]).dot(primal['x'][:3,k]) for k in range(pbm.N+1)]),
-                                         np.column_stack([R(t[k]).dot(primal['x'][3:,k]) for k in range(pbm.N+1)])])
+                                         np.column_stack([R(t[k]).dot(primal['x'][3:,k])+np.cross(pbm.omega,R(t[k]).dot(primal['x'][:3,k])) for k in range(pbm.N+1)])])
     primal['u_inertial'] = [np.column_stack([R(t[k]).dot(primal['u'][i][:,k]) for k in range(pbm.N)]) for i in range(pbm.M)]
     
     pickle.dump(dict(rho1=pbm.rho1,rho2=pbm.rho2,N=pbm.N,M=pbm.M,K=pbm.K,
@@ -223,14 +228,18 @@ def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
                      J=J,t=t,primal=primal,dual=dual,misc=misc,solver_time=solver_time,
                      cost_profile=cost_profile_J,cost_profile_t=cost_profile_t),open(filename,'wb'))
 
-#%% Lossless convexification solution
+def solve_docking():
+    #%% Lossless convexification solution
+    
+    cooper = Docker()
+    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_lcvx.pkl')
+    
+    #%% Mixed-integer solution
+    
+    cooper = Docker(micp=True)
+    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_micp.pkl')
 
-cooper = Docker()
-J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_lcvx_presolve.pkl')
-
-#%% Mixed-integer solution
-
-cooper = Docker(micp=True)
-J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_micp_presolve.pkl')
+if __name__=='__main__':
+    solve_docking()

@@ -80,7 +80,7 @@ def solve(problem,tf_range,opt_tol=1e-2):
     def f(tf):
         status,J,t,primal,dual,misc,solver_time = problem.problem2(tf)
         return status,J,solver_time
-    tf,golden_time = golden(f,tf_range[0],tf_range[1],opt_tol)
+    tf,golden_time = golden(f,tf_range[0],tf_range[1],opt_tol,'Problem 2 ')
     status,J,t,primal,dual,misc,solver_time = problem.problem2(tf)
     total_solver_time = golden_time+solver_time
     if problem.zeta==1:
@@ -88,7 +88,7 @@ def solve(problem,tf_range,opt_tol=1e-2):
             status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J2)
             return status,J,solver_time
         f3 = lambda tf: f(tf,J)
-        tf,golden_time = golden(f3,tf_range[0],tf,opt_tol)
+        tf,golden_time = golden(f3,tf_range[0],tf,opt_tol,'Problem 3 ')
         status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J)
         total_solver_time += golden_time+solver_time
     

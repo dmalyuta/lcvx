@@ -14,7 +14,7 @@ import scipy.linalg as sla
 import cvxpy as cvx
 import progressbar as progressbar
 
-def golden(f,lb,ub,tol):
+def golden(f,lb,ub,tol,name=None):
     """
     Golden search for a minimum.
     
@@ -30,6 +30,8 @@ def golden(f,lb,ub,tol):
     tol : float
         Convergence tolerance, such that the minimum is within tol units away
         from the returned x.
+    name: str, optional
+        Display a name for the progressbar.
     
     Returns
     -------
@@ -47,13 +49,16 @@ def golden(f,lb,ub,tol):
     icount = np.ceil(np.log((ub-lb)/(2*tol))/np.log(phi)) if ub>lb else 0
     if icount == 0:
         x[1] = ub
-    widgets=['[%.2f,%.2f,%.2f]'%(x[0],np.nan,x[2]),' ',progressbar.Bar(),' (', progressbar.ETA(), ') ']
+    name = '' if name is None else name
+    widgets=[name,'[%.2f,%.2f,%.2f]'%(x[0],np.nan,x[2]),' ',progressbar.Bar(),' (',
+             progressbar.ETA(), ') (solver time: ','0.00',' s)']
     for i in progressbar.progressbar(range(int(icount)),widgets=widgets):
         try:
             if np.isnan(x[1]):
                 x[1] = (phi*x[0]+x[2])/(phi+1.)
                 _,fx2,time = f(x[1])
                 solver_time += time
+                widgets[-2] = '%.2e'%(solver_time)
             x4 = x[0]+x[2]-x[1]
             status,fx4,time = f(x4)
             solver_time += time
@@ -65,7 +70,8 @@ def golden(f,lb,ub,tol):
                 x[2] = x[0]
                 x[0] = x4
             y = np.sort(x)
-            widgets[0] = '[%.2f,%.2f,%.2f] {%s}'%(y[0],y[1],y[2],status)
+            widgets[1] = '[%.2f,%.2f,%.2f] {%s}'%(y[0],y[1],y[2],status)
+            widgets[-2] = '%.2e'%(solver_time)
         except KeyboardInterrupt:
             sys.exit()
     
@@ -77,6 +83,7 @@ def golden(f,lb,ub,tol):
         if status=='optimal' or status=='optimal_inaccurate':
             x = y[i]
             break
+    widgets[-2] = '%.2e'%(solver_time)
     
     return x,solver_time
 
