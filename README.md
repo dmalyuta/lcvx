@@ -1,11 +1,13 @@
 # Lossless convexification with a mixed-integer constraint
 
+![Optimal trajectory](./figures/optimal_trajectory.png)
+
 ## General Description
 
 This repository implements the numerical example of the paper cited below,
 submitted to [Automatica](https://www.journals.elsevier.com/automatica/). This
 solves the problem of satellite docking to a rotating space station. The
-satellite is equiped with 12 thrusters of which at most 4 can be simutaneously
+satellite is equipped with 12 thrusters of which at most 4 can be simutaneously
 active, and each of which has an upper and lower bound 2-norm constraint.
 
 ``` 
@@ -30,13 +32,23 @@ archivePrefix = {arXiv},
 
 To run the code, you must have Python 2.7.15 and [Gurobi
 8.1](http://www.gurobi.com/downloads/download-center) installed. To install
-Python and other dependenies (except Gurobi), we recommend that you install
-[Anaconda for Python 2.7](https://www.anaconda.com/distribution/) and then
-execute (from inside this repository's directory):
+Python and other dependenies (except Gurobi) on Ubuntu, we recommend that you
+install [Anaconda for Python 2.7](https://www.anaconda.com/distribution/) and
+then execute (from inside this repository's directory):
 
 ```
-conda create -n lcvx_aut19 python=2.7 anaconda # Answer yes to everything
-source activate lcvx_aut19
-pip install -r requirements.txt
+$ conda create -n lcvx_aut19 python=2.7 anaconda # Answer yes to everything
+$ source activate lcvx_aut19
+$ pip install -r requirements.txt
+```
+
+## Instructions
+
+Execute ``main.py`` to run the code. If you followed the above installation
+instructions, you can do:
+
+```
+$ source activate lcvx_aut19
+$ ipython main.py
 ```
 
