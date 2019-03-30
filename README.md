@@ -1,7 +1,10 @@
 # Lossless convexification with a mixed-integer constraint
 
 <p align="center">
-  <img width="300" src="/figures/optimal_trajectory.png?raw=true">
+	<img width="500" src="/figures/optimal_trajectory.png?raw=true">
+</p>
+<p align="center" width="600">
+	Figure: globally optimal trajectory which trades off time and fuel usage minimization. The red vectors show the velocity and the blue vectors show the thrust (negative of the acceleration). The trajectory is displayed in the inertial frame and its projections onto the three combinations of axes are shown.
 </p>
 
 ## General Description
