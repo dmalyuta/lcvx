@@ -45,11 +45,12 @@ class Docker(lcvx.Problem,object):
         
         # RCS layout
         cone_angle = 0. # [deg] Thruster cone angle
-        theta = phi = 30 # [deg] Basic pitch, roll
-        cone_parameters = [dict(alpha=cone_angle,roll=phi,pitch=theta,yaw=0),
-                           dict(alpha=cone_angle,roll=-phi,pitch=theta,yaw=0),
-                           dict(alpha=cone_angle,roll=-phi,pitch=-theta,yaw=0),
-                           dict(alpha=cone_angle,roll=phi,pitch=-theta,yaw=0),
+        theta = phi = 30 # [deg] Basic pitch, roll for lower thrusters
+        theta_up = phi_up = 35 # [deg] Basic pitch, roll for upper thrusters
+        cone_parameters = [dict(alpha=cone_angle,roll=phi_up,pitch=theta_up,yaw=0),
+                           dict(alpha=cone_angle,roll=-phi_up,pitch=theta_up,yaw=0),
+                           dict(alpha=cone_angle,roll=-phi_up,pitch=-theta_up,yaw=0),
+                           dict(alpha=cone_angle,roll=phi_up,pitch=-theta_up,yaw=0),
                            dict(alpha=cone_angle,roll=phi+(180-2*phi),pitch=-theta,yaw=0),
                            dict(alpha=cone_angle,roll=-phi-(180-2*phi),pitch=-theta,yaw=0),
                            dict(alpha=cone_angle,roll=-phi-(180-2*phi),pitch=theta,yaw=0),
@@ -81,13 +82,13 @@ class Docker(lcvx.Problem,object):
         Dx = np.concatenate(np.abs([r0,v0]))
         Dx[Dx==0] = 1
         Dx = np.diag(Dx)
-        Du = np.diag([self.rho2 for _ in range(nu)])
+        self.Du = np.diag([self.rho2 for _ in range(nu)])
         
         # Optimization problem common parts
         self.N = 300 # Temporal solution
         x = [cvx.Parameter(nx)]+[Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
         xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
-        u = [[Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
+        u = [[self.Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
         unorm = [cvx.Variable(self.N) for _ in range(self.M)]
         sigma = [cvx.Variable(self.N) for _ in range(self.M)]
         gamma = [cvx.Bool(self.N) if micp else cvx.Variable(self.N) for _ in range(self.M)]
