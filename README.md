@@ -4,7 +4,7 @@
 	<img width="500" src="/figures/readme_image.png?raw=true">
 </p>
 <p align="center" width="600">
-	Figure: globally optimal trajectory which trades off time and fuel usage minimization. The red vectors show the velocity and the blue vectors show the thrust (negative of the acceleration). The trajectory is displayed in the inertial frame and its projections onto the three combinations of axes are shown.
+Figure: globally optimal trajectory that trades off minimum time and fuel usage. The trajectories and their projections are shown in the rotating frame (top, left) and the inertial frame (top, right). The red vectors are the velocity and the blue vectors are the thrust (negative of the acceleration). The total input magnitude (bottom) clearly shows the mixed-integer nature of the input, despite this being the solution to a second-order cone program with real variables.
 </p>
 
 ## General Description
