@@ -8,6 +8,7 @@ Copyright 2019 University of Washington. All rights reserved.
 """
 
 import sys
+import itertools
 import numpy as np
 import numpy.linalg as la
 import scipy.linalg as sla
@@ -164,7 +165,7 @@ def pbh(A,B):
             return False
     return True
 
-def make_cone(alpha,roll,pitch,yaw,normal=False):
+def make_cone(alpha,roll,pitch,yaw):
     """
     Generates a four-sided cone {u: C*u<=0} with opening angle alpha and
     pointed according to Tait-Bryan convention. The cone is rotated starting
@@ -180,15 +181,11 @@ def make_cone(alpha,roll,pitch,yaw,normal=False):
         Pitch angle aboubt y' in degrees.
     yaw : float
         Yaw angle about z in degrees.
-    normal : float
-        Compute instead the normal cone to {u: C*u<=0}, i.e. the set
-        {v: N*v<=0} such that v^T*u<=0 for all u such that C*u<=0.
     
     Returns
     -------
     C : array
-        Matrix whose rows are the facet outwarding-facing normals (of the cone
-        or of the normal cone).
+        Matrix whose rows are the facet outwarding-facing normals of the cone.
     """
     alpha = np.deg2rad(alpha)
     roll = np.deg2rad(roll)
@@ -200,306 +197,72 @@ def make_cone(alpha,roll,pitch,yaw,normal=False):
     Ry = lambda u: np.array([[c(u),0,s(u)],[0,1,0],[-s(u),0,c(u)]])
     Rz = lambda u: np.array([[c(u),-s(u),0],[s(u),c(u),0],[0,0,1]])
     # Compute the non-rotated cone
-    angle = 0. if normal else np.pi/2.
     nhat_base = np.array([0,0,1])
-    C_base = np.row_stack([Rx(angle+alpha/2.).dot(nhat_base),
-                           Rx(-angle-alpha/2.).dot(nhat_base),
-                           Ry(angle+alpha/2.).dot(nhat_base),
-                           Ry(-angle-alpha/2.).dot(nhat_base),
+    extra_angle = np.pi/2.
+    C_base = np.row_stack([Rx(extra_angle+alpha/2.).dot(nhat_base),
+                           Rx(-extra_angle-alpha/2.).dot(nhat_base),
+                           Ry(extra_angle+alpha/2.).dot(nhat_base),
+                           Ry(-extra_angle-alpha/2.).dot(nhat_base),
                            -nhat_base])
     R = Rz(yaw).dot(Ry(pitch)).dot(Rx(roll)) # Overall active rotation
     C = C_base.dot(R.T)
     return C
 
-def Dsvd(A):
+def normal_cone(C,abstol=1e-7):
     """
-    SVD wrapper that accepts empty matrices.
+    Compute normal cone to the cone {u: C*u<=0}. Assumes that the cone lives
+    in R^3 and that the last row of C gives the direction opposite to the
+    cone's nominal pointing direction. Also assumes that the cone has an
+    opening angle <180 degrees, i.e. is not a halfspace.
     
     Parameters
     ----------
-    A : array
-        Matrix whose SVD to calculate.
-        
-    Returns
-    -------
-    u,s,vh : array
-        Same as outputs of MATLAB's svd.
-    """
-    if A.shape[0]==0 or A.shape[1]==0:
-        u = np.empty((0,0)) if A.shape[0]==0 else np.eye(A.shape[0])
-        s = np.empty(A.shape)
-        v = np.empty((0,0)) if A.shape[1]==0 else np.eye(A.shape[1])
-    else:
-        u,s,vh = la.svd(A)
-        s = np.diag(s)
-        v = vh.T
-    return u,s,v
-
-def Drank(A,Leps=None):
-    """
-    Matrix rank that accepts empty matrices.
-    
-    Parameters
-    ----------
-    A : array
-        Matrix whose rank to compute.
-    Leps : float, optional
-        Tolerance of calculation.
-        
-    Returns
-    -------
-    : int
-        Matrix rank.
-    """
-    if A.shape[0]==0 or A.shape[1]==0:
-        return 0
-    else:
-        return la.matrix_rank(A,Leps) if Leps is not None else la.matrix_rank(A)
-    
-def Dnull(A):
-    """
-    Nullspace computation that accepts empty matrices.
-    
-    Parameters
-    ----------
-    A : array
-        Matrix whose nullspace to compute.
-        
-    Returns
-    -------
-    : array
-        Matrix nullspace.
-    """
-    if A.shape[0]==0 or A.shape[1]==0:
-        return np.eye(A.shape[1])
-    else:
-        return sla.null_space(A)
-
-def Brank(A,Leps=None):
-    """
-    r = Brank(A,Leps)
-    --------------------
-    Behcet Acikmese
-    Danylo Malyuta
-    
-    1. June, 2007
-    2. April, 2019 (Python version)
-    
-    Parameters
-    ----------
-    A : array
-        Basis matrix whose rank to compute.
-    Leps : float, optional
-        Tolerance of calculation.
-        
-    Returns
-    -------
-    r : int
-        Rank of A.
-    """
-    r = Drank(A,Leps)
-    nA = Dnull(A)
-    nAt = Dnull(A.T)
-    nr = nA.shape[1]
-    nrt = nAt.shape[1]
-    r2 = A.shape[1]-nr
-    r3 = A.shape[0]-nrt
-    r3 = np.min([r2,r3,Drank(A.T.dot(A))]) #strong rank:)
-    r = np.min([r,r3])
-    return r
-
-def Bim(A,Leps=None):
-    """
-    W = Bim(A,Leps)
-    --------------------
-    im(V) = im(A) and V is onto s.t. V'V =I
-    --------------------
-    Behcet Acikmese
-    Danylo Malyuta
-    
-    1. June, 2007
-    2. April, 2019 (Python version)
-    
-    Parameters
-    ----------
-    A : array
-        Basis matrix which to reduce to minimal basis.
-    Leps : float, optional
-        Tolerance of calculation.
-        
-    Returns
-    -------
-    W : array
-        Onto version of A.
-    Sv : array
-        Singular values.
-    """
-    U,S = Dsvd(A)[:2]
-    Sd = np.diag(S)
-    r = Brank(A,Leps)
-    n = U.shape[0]
-    if r>0:
-        W = U[:,:r]
-        Sv = Sd[:r]
-        if r==n:
-            W = np.eye(r)
-    else:
-        W = np.zeros((n,0))
-        Sv = np.zeros((1,0))
-    return W, Sv   
-
-def BsumS(A,B,Leps=None):
-    """
-    W = BsumS(A,B,Leps)
-    --------------------
-    im(V) = sum of subspaces im(A) and im(B)
-    --------------------
-    Behcet Acikmese
-    Danylo Malyuta
-    
-    1. September 2006
-    2. June, 2007 (update)
-    3. April, 2019 (Python version)
-    
-    Parameters
-    ----------
-    A : array
-        Basis matrix of subspace A.
-    B : array
-        Basis matrix of subspace B.
-    Leps : float, optional
-        Tolerance for rank calculation.
-        
-    Returns
-    -------
-    W : array
-        Basis matrix of im(A)+im(B).
-    Sw : array
-        Singular values.
-    """
-    n = A.shape[0]
-    m = B.shape[0]
-    if n != m:
-        print 'Dimensions of subspaces do NOT match'
-        W = np.empty(0)
-        Sv = np.empty(0)
-    else:
-        Ua,ra = Dsvd(A)[0],Brank(A)
-        Ub,rb = Dsvd(B)[0],Brank(B)
-        T = np.column_stack([Ua[:,:ra],Ub[:,:rb]])
-        W,Sv = Bim(T,Leps)
-    return W, Sv
-
-def Bker(A,Leps=None):
-    """
-    W = Bker(A,Leps)
-    --------------------
-    im(V) = ker(A) and V is onto s.t. V'V =I
-    --------------------
-    Behcet Acikmese
-    Danylo Malyuta
-    
-    1. June, 2007
-    2. April, 2019 (Python version)
-    
-    Parameters
-    ----------
-    A : array
-        Basis matrix whose kernel to compute.
-    Leps : float, optional
-        Tolerance of calculation.
-        
-    Returns
-    -------
-    W : int
-        Basis matrix of kernel of A.
-    Sv : array
-        Singular values.
-    """
-    S,V = Dsvd(A)[1:]
-    Sd = np.diag(S)
-    V = V.T
-    r = Brank(A,Leps)
-    Sv = Sd[:r]
-    n = V.shape[0]
-    if r==n:
-        W = np.zeros((n,0))
-    else:
-        W = V[r:,:].T
-    return W,Sv
-
-def BVinv(A,V,Leps=None):
-    """
-    W = BVinv(A,V,Leps)
-    --------------------
-    Finds the A^-1(imV): {x: Ax \in imV}
-    Leps optional for rank computation
-    Uses: A^-1(imV) = ker(A' kerV')'
-    --------------------
-    Behcet Acikmese
-    
-    1. June, 2007
-    2. April, 2019 (Python version)
-    
-    Parameters
-    ----------
-    A : array
-        Matrix whose inverse set map to compute.
-    V : array
-        Basis matrix of set.
-    Leps : float, optional
-        Tolerance of calculation.
-        
-    Returns
-    -------
-    W : array
-        Basis matrix of A^-1(imV).
-    """
-    n = A.shape[0]
-    nc = A.shape[1]
-    m = V.shape[0]
-    
-    if n!=m:
-        print 'Error: dimensions mismatch'
-        W = np.zeros((nc,0))
-    else:
-        kV = Bker(V.T)[0]
-        AkV = A.T.dot(kV)
-        W = Bker(AkV.T)[0]
-    return W
-
-def weak_unobsv_sub(A,B,C,D):
-    """
-    Find the weakly observable subspace for the linear system
-    \Sigma = (A,B,C,D).
-    Based on Trentelman et al. page 162
-    
-    Matt Harris, April 16, 2013
-    Danylo Malyuta, April 6, 2019 (Python version)
-    
-    Parameters
-    ----------
-    A,B,C,D : array
-        Matrices of commensurate dimensions defining the dynamica system.
+    C : array
+        Matrix whose rows are the facet outwarding-facing normals of the cone.
+    abstol : float, optional
+        Absolute tolerance on duality gap.
     
     Returns
     -------
-    V : array
-        Basis matrix of the weakly unobservable subspace.
+    N : array
+        Matrix whose rows are the facet outward-facing normals of the normal
+        cone {u: N*u<=0}.
     """
-    n = A.shape[0]
-    m = B.shape[1]
-    p = C.shape[0]
-    
-    AC = np.row_stack([A,C])
-    BD = np.row_stack([B,D])
-    
-    V = np.eye(n)
-    
-    for i in range(n):
-        q = V.shape[1]
-        S1 = np.block([[V,np.zeros((n,m))],[np.zeros((p,q+m))]])
-        S2 = BsumS(S1,BD)[0]
-        V = BVinv(AC,S2)
-    
-    return V
+    m = C.shape[1] # Rest of code assumes that cone lives in R^3, so should be =3
+    cvxopts = dict(solver=cvx.ECOS,verbose=False,abstol=abstol,reltol=np.finfo(np.float64).eps)
+    # Get combinations of active facets that do not fully constrain the vector
+    cone_dir = -C[-1]
+    facet_pairs = []
+    # Setup optimization problem
+    x = cvx.Variable(m)
+    facet_pair = cvx.Parameter(2,3)
+    cost = cvx.Minimize(0)
+    constraints = [facet_pair*x == 0,
+                   C*x <= 0,
+                   cone_dir*x >= 1]
+    problem = cvx.Problem(cost,constraints)
+    for pair in itertools.combinations(C,2):
+        facet_pair.value = np.array(pair)
+        problem.solve(**cvxopts)
+        if problem.status=='optimal':
+            facet_pairs.append(pair)
+    N = np.array([np.cross(pair[0],pair[1]) for pair in facet_pairs])
+    for i in range(N.shape[0]):
+        if cone_dir.dot(N[i])<0:
+            N[i] = -N[i]
+    # Clean up quasi-zero rows
+    eps = np.sqrt(np.finfo(np.float64).eps) # Machine epsilon
+    N = N[np.logical_not(np.all(np.abs(N)<eps,axis=1))]
+    # Remove redundant facets
+    x = cvx.Variable(m)
+    i = 0
+    while i<N.shape[0]:
+        cost = cvx.Maximize(N[i]*x)
+        constraints = [N[j]*x <= (0 if j!=i else 1) for j in range(N.shape[0])]
+        problem = cvx.Problem(cost,constraints)
+        optimal_cost = problem.solve(**cvxopts)
+        if optimal_cost<=abstol:
+            N = N[[j for j in range(N.shape[0]) if j!=i]]
+        else:
+            i += 1
+    return N

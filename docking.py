@@ -46,7 +46,7 @@ class Docker(lcvx.Problem,object):
         # RCS layout
         cone_angle = 0. # [deg] Thruster cone angle
         theta = phi = 30 # [deg] Basic pitch, roll for lower thrusters
-        theta_up = phi_up = 35 # [deg] Basic pitch, roll for upper thrusters
+        theta_up = phi_up = 40 # [deg] Basic pitch, roll for upper thrusters
         cone_parameters = [dict(alpha=cone_angle,roll=phi_up,pitch=theta_up,yaw=0),
                            dict(alpha=cone_angle,roll=-phi_up,pitch=theta_up,yaw=0),
                            dict(alpha=cone_angle,roll=-phi_up,pitch=-theta_up,yaw=0),
@@ -60,12 +60,10 @@ class Docker(lcvx.Problem,object):
                            dict(alpha=cone_angle,roll=0,pitch=90,yaw=0),
                            dict(alpha=cone_angle,roll=0,pitch=-90,yaw=0)]
         self.C = [tools.make_cone(**param) for param in cone_parameters]
-        self.Cn = [tools.make_cone(normal=True,**param) for param in cone_parameters]
         eps = np.sqrt(np.finfo(np.float64).eps) # Machine epsilon
         for i in range(len(self.C)):
             # Clean up small coefficients
             self.C[i][np.abs(self.C[i])<eps]=0
-            self.Cn[i][np.abs(self.Cn[i])<eps]=0
         self.M = len(self.C) # Number of thrusters
         self.K = 4 # How many thrusters can be simultaneously active
         
@@ -81,12 +79,12 @@ class Docker(lcvx.Problem,object):
         # Scaling
         Dx = np.concatenate(np.abs([r0,v0]))
         Dx[Dx==0] = 1
-        Dx = np.diag(Dx)
+        self.Dx = np.diag(Dx)
         self.Du = np.diag([self.rho2 for _ in range(nu)])
         
         # Optimization problem common parts
         self.N = 300 # Temporal solution
-        x = [cvx.Parameter(nx)]+[Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
+        x = [cvx.Parameter(nx)]+[self.Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
         xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
         u = [[self.Du*cvx.Variable(nu) for __ in range(self.N)] for _ in range(self.M)]
         unorm = [cvx.Variable(self.N) for _ in range(self.M)]
@@ -95,8 +93,8 @@ class Docker(lcvx.Problem,object):
         dt = cvx.Parameter()
         J2 = cvx.Parameter()
         
-        self.zeta = 1 # minimum time: 0
-        cost_p2 = dt*self.N/100.+xi[-1] # minimum time: dt
+        self.zeta = 0#1 # minimum time: 0
+        cost_p2 = dt#*self.N/100.+xi[-1] # minimum time: dt
         cost_p3 = dt*self.N+0.01*xi[-1] # but do golden search with dt*self.N
         
         self.constraints = []
@@ -233,14 +231,15 @@ def solve_docking():
     #%% Lossless convexification solution
     
     cooper = Docker()
+    conditions_hold,info = lcvx.check_conditions_123(cooper)
     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-    post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_lcvx.pkl')
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_lcvx_mintime.pkl')
     
     #%% Mixed-integer solution
     
     cooper = Docker(micp=True)
     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-    post_process(cooper,J,t,primal,dual,misc,solver_time,'solution_micp.pkl')
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_micp_mintime.pkl')
 
 if __name__=='__main__':
     solve_docking()

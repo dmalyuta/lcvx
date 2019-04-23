@@ -26,13 +26,13 @@ def plot_automatica19():
     
     #%% Load data
     
-    solution = pickle.load(open('solution_lcvx.pkl','rb'))
+    solution = pickle.load(open('docking_micp_mintime.pkl','rb'))
     t,primal = solution['t'],solution['primal']
     rho1,rho2,M,K,C = solution['rho1'],solution['rho2'],solution['M'],solution['K'],solution['C']
     
     print 'N: %d'%(solution['N'])
     print 'Solver time: %.1e s'%(solution['solver_time'])
-    
+
     #%% Trajectory
     
     matplotlib.rcParams.update({'font.size': 14})
@@ -50,7 +50,9 @@ def plot_automatica19():
     accel2d_style = dict(linewidth=0.25,color='blue',alpha=0.5)
     vel_scale = (25 if in_inertial else 6)*np.eye(3)
     accel_scale = 3e2*np.eye(3)
-    proj_pos = [-20,-10,-20] if in_inertial else [-30,-40,-30]
+    #proj_pos = [-20,-10,-20] if in_inertial else [-30,-40,-30]
+    #ax_lim_up = [20,25,120] if in_inertial else [20,30,120]
+    proj_pos = [-40,-25,-20] if in_inertial else [-40,-80,-40]
     ax_lim_up = [20,25,120] if in_inertial else [20,30,120]
     
     fig = plt.figure(1,figsize=[6,6.8])
@@ -162,10 +164,10 @@ def plot_automatica19():
     # Colors
     u_color = sns.color_palette(None,len(C))
     
-    fig = plt.figure(3,figsize=[5.3,4.6])
+    fig = plt.figure(3,figsize=[5.3,5.7])
     plt.clf()
     ax = fig.add_subplot(111, projection='3d')
-    ax.view_init(elev=33,azim=42)
+    ax.view_init(elev=23,azim=40)
     nhat = [-C[i][-1] for i in range(len(C))] # Cone pointing directions
     for i in range(len(C)):
         ax.plot([0,nhat[i][0]],[0,nhat[i][1]],[0,nhat[i][2]],color=u_color[i],**u_style)
