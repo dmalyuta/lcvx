@@ -21,12 +21,12 @@ def plot_automatica19():
 
     #%% User choices
     
-    in_inertial = False # True to plot trajectory in the inertial frame
+    in_inertial = True # True to plot trajectory in the inertial frame
     save_pdf = True # True to save figure PDFs
     
     #%% Load data
     
-    solution = pickle.load(open('docking_micp_mintime.pkl','rb'))
+    solution = pickle.load(open('docking_lcvx.pkl','rb'))
     t,primal = solution['t'],solution['primal']
     rho1,rho2,M,K,C = solution['rho1'],solution['rho2'],solution['M'],solution['K'],solution['C']
     

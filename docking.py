@@ -233,13 +233,13 @@ def solve_docking():
     cooper = Docker()
     conditions_hold,info = lcvx.check_conditions_123(cooper)
     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_lcvx_mintime.pkl')
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_lcvx.pkl')
     
     #%% Mixed-integer solution
     
     cooper = Docker(micp=True)
     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_micp_mintime.pkl')
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_micp.pkl')
 
 if __name__=='__main__':
     solve_docking()
