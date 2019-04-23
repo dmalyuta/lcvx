@@ -2,6 +2,6 @@
 /**/__pycache__/
 /**/gurobi.log
 /sandbox/
-/**/figures/*
+/**/figures/*.pdf
 !/figures/.keep
 /**/*.pkl
