@@ -12,8 +12,77 @@ import itertools
 import numpy as np
 import numpy.linalg as la
 import scipy.linalg as sla
+from scipy.integrate import solve_ivp as ivp
 import cvxpy as cvx
 import progressbar as progressbar
+
+def R2d(u):
+    """
+    2D rotation matrix.
+    
+    Parameters
+    ----------
+    u : float
+        Rotation angle.
+        
+    Returns
+    -------
+    R_ : array
+        The rotation matrix.
+    """
+    R_ = np.array([[np.cos(u),-np.sin(u)],[np.sin(u),np.cos(u)]])
+    return R_
+
+def Rx(u):
+    """
+    3D rotation matrix about x.
+    
+    Parameters
+    ----------
+    u : float
+        Rotation angle.
+        
+    Returns
+    -------
+    Rx_ : array
+        The rotation matrix.
+    """
+    Rx_ = np.array([[1,0,0],[0,np.cos(u),-np.sin(u)],[0,np.sin(u),np.cos(u)]])
+    return Rx_
+
+def Ry(u):
+    """
+    3D rotation matrix about y.
+    
+    Parameters
+    ----------
+    u : float
+        Rotation angle.
+        
+    Returns
+    -------
+    Ry_ : array
+        The rotation matrix.
+    """
+    Ry_ = np.array([[np.cos(u),0,np.sin(u)],[0,1,0],[-np.sin(u),0,np.cos(u)]])
+    return Ry_
+
+def Rz(u):
+    """
+    3D rotation matrix about z.
+    
+    Parameters
+    ----------
+    u : float
+        Rotation angle.
+        
+    Returns
+    -------
+    Rz_ : array
+        The rotation matrix.
+    """
+    Rz_ = np.array([[np.cos(u),-np.sin(u),0],[np.sin(u),np.cos(u),0],[0,0,1]])
+    return Rz_
 
 def golden(f,lb,ub,tol,name=None):
     """
@@ -108,14 +177,25 @@ def cost_profile(oracle,t_range):
     J = np.array([oracle(t) for t in progressbar.progressbar(t_range)])
     return J
 
-def discretize(Ac,Bc,dt):
+def discretize(Ac,Bc,dt,kind='zoh'):
     """Dynamics discretization"""
-    M = sla.expm(np.block([[Ac,Bc],
-                           [np.zeros([Bc.shape[1],
-                                      Ac.shape[1]+Bc.shape[1]])]])*dt)
-    A = M[:Ac.shape[0],:Ac.shape[0]]
-    B = M[:Ac.shape[0],Ac.shape[0]:]
-    return A,B
+    if kind=='zoh':
+        M = sla.expm(np.block([[Ac,Bc],[np.zeros([Bc.shape[1],
+                               Ac.shape[1]+Bc.shape[1]])]])*dt)
+        A = M[:Ac.shape[0],:Ac.shape[0]]
+        B = M[:Ac.shape[0],Ac.shape[0]:]
+        return A,B
+    elif kind=='foh':
+        n,m = Ac.shape[1],Bc.shape[1]
+        A = sla.expm(Ac*dt)
+        sm = lambda t: t/dt
+        sp = lambda t: 1-t/dt
+        eps = np.finfo(np.float64).eps
+        Bm = np.reshape(ivp(lambda t,x: np.reshape(sla.expm(Ac*t).dot(Bc)*sm(t),n*m),
+                            (0,dt),np.zeros(n*m),rtol=np.sqrt(eps),atol=1e-8).y[:,-1],(n,m))
+        Bp = np.reshape(ivp(lambda t,x: np.reshape(sla.expm(Ac*t).dot(Bc)*sp(t),n*m),
+                            (0,dt),np.zeros(n*m),rtol=np.sqrt(eps),atol=1e-8).y[:,-1],(n,m))
+        return A,Bm,Bp    
 
 def cvx2arr(x,dual=False):
     """Convert CVX variable to an array"""
@@ -165,11 +245,14 @@ def pbh(A,B):
             return False
     return True
 
-def make_cone(alpha,roll,pitch,yaw):
+def make_cone(alpha,roll,pitch=0.,yaw=0.,twod=False):
     """
     Generates a four-sided cone {u: C*u<=0} with opening angle alpha and
     pointed according to Tait-Bryan convention. The cone is rotated starting
     from a +z orientation.
+    
+    If twod==True, then the (x,y) Cartesian plane is assumed and only roll is
+    used to define the code pointing direction away from the +y orientation.
     
     Parameters
     ----------
@@ -177,9 +260,9 @@ def make_cone(alpha,roll,pitch,yaw):
         Cone opening angle (angle between two opposing hyperplanes) in degrees.
     roll : float
         Roll angle about x'' in degrees.
-    pitch : float
+    pitch : float, optional
         Pitch angle aboubt y' in degrees.
-    yaw : float
+    yaw : float, optional
         Yaw angle about z in degrees.
     
     Returns
@@ -189,23 +272,26 @@ def make_cone(alpha,roll,pitch,yaw):
     """
     alpha = np.deg2rad(alpha)
     roll = np.deg2rad(roll)
-    pitch = np.deg2rad(pitch)
-    yaw = np.deg2rad(yaw)
-    c = lambda u: np.cos(u)
-    s = lambda u: np.sin(u)
-    Rx = lambda u: np.array([[1,0,0],[0,c(u),-s(u)],[0,s(u),c(u)]])
-    Ry = lambda u: np.array([[c(u),0,s(u)],[0,1,0],[-s(u),0,c(u)]])
-    Rz = lambda u: np.array([[c(u),-s(u),0],[s(u),c(u),0],[0,0,1]])
-    # Compute the non-rotated cone
-    nhat_base = np.array([0,0,1])
     extra_angle = np.pi/2.
-    C_base = np.row_stack([Rx(extra_angle+alpha/2.).dot(nhat_base),
-                           Rx(-extra_angle-alpha/2.).dot(nhat_base),
-                           Ry(extra_angle+alpha/2.).dot(nhat_base),
-                           Ry(-extra_angle-alpha/2.).dot(nhat_base),
-                           -nhat_base])
-    R = Rz(yaw).dot(Ry(pitch)).dot(Rx(roll)) # Overall active rotation
-    C = C_base.dot(R.T)
+    if twod:
+        # Compute the non-rotated cone
+        nhat_base = np.array([0,1])
+        C_base = np.row_stack([R2d(extra_angle+alpha/2.).dot(nhat_base),
+                               R2d(-extra_angle-alpha/2.).dot(nhat_base),
+                               -nhat_base])
+        C = C_base.dot(R2d(roll).T)
+    else:
+        pitch = np.deg2rad(pitch)
+        yaw = np.deg2rad(yaw)
+        # Compute the non-rotated cone
+        nhat_base = np.array([0,0,1])
+        C_base = np.row_stack([Rx(extra_angle+alpha/2.).dot(nhat_base),
+                               Rx(-extra_angle-alpha/2.).dot(nhat_base),
+                               Ry(extra_angle+alpha/2.).dot(nhat_base),
+                               Ry(-extra_angle-alpha/2.).dot(nhat_base),
+                               -nhat_base])
+        R = Rz(yaw).dot(Ry(pitch)).dot(Rx(roll)) # Overall active rotation
+        C = C_base.dot(R.T)
     return C
 
 def normal_cone(C,abstol=1e-7):
