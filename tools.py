@@ -106,7 +106,8 @@ def golden(f,lb,ub,tol,name=None):
     Returns
     -------
     x : float
-        Minimum location, \in [lb,ub].
+        Minimum location, \in [lb,ub]. If failed to solve anywhere in [lb,ub],
+        returns None.
     solver_time : float
         Sum of solver times for all calls to the optimizer
     """
@@ -147,6 +148,7 @@ def golden(f,lb,ub,tol,name=None):
     
     # Get the location that is feasible, starting from the upper bound
     y = np.sort(x)
+    x = None
     for i in range(2,-1,-1):
         status,_,time = f(y[i])
         solver_time += time

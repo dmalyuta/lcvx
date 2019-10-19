@@ -28,6 +28,7 @@ class Lander(lcvx.Problem,object):
         super(Lander, self).__init__()
         
         cvx_opts = dict(solver=cvx.GUROBI,verbose=False,Presolve=1,LogFile='',threads=1)
+        #cvx_opts = dict(solver=cvx.ECOS,verbose=False)
         
         # Physical parameters
         self.omega = 2*np.pi/(24*3600+39*60+35) # [rad/s] Mars spin
@@ -36,18 +37,18 @@ class Lander(lcvx.Problem,object):
         amax = Tmax/self.mass; # [m/s^2] Maximum acceleration
         self.g = 3.71 # [m/s^2] Mars surface gravity
         self.R = 3396.2e3 # [m] Mars radius
-        self.rho1 = [s_*amax for s_ in [0.2,0.5,0.8]] # [m/s^2] Smallest  acceleration
-        self.rho2 = [s_*amax for s_ in [0.5,0.8,1.]] # [m/s^2] Largest control acceleration
-        self.gs = np.deg2rad(80) # [rad] Largest glideslope angle
+        self.rho1 = [s_*amax for s_ in [0.2,0.6]] # [m/s^2] Smallest  acceleration
+        self.rho2 = [s_*amax for s_ in [0.6,0.9]] # [m/s^2] Largest control acceleration
+        self.gs = np.deg2rad(85) # [rad] Smallest glideslope angle
         
         # Boundary conditions
-        r0 = np.array([400.,2500.])
-        v0 = np.array([10.,-50.])
+        r0 = np.array([-100.,3000.])
+        v0 = np.array([-37.,-60.])
         rf = np.array([0.,0.])
         vf = np.array([0.,0.])
         
         # Thruster layout
-        self.theta = [90.,30.,10.] # [rad] Gimbal angles of [low,high] thrust modes
+        self.theta = [90.,20.] # [rad] Gimbal angles of [low,high] thrust modes
         cone_parameters = [dict(alpha=theta,roll=0,twod=True) for theta in self.theta]
         self.C = [tools.make_cone(**param) for param in cone_parameters]
         eps = np.sqrt(np.finfo(np.float64).eps) # Machine epsilon
@@ -71,11 +72,13 @@ class Lander(lcvx.Problem,object):
         # Scaling
         Dx = np.concatenate(np.abs([r0,v0]))
         Dx[Dx==0] = 1
+        Dx[0] = r0[1]*np.tan(np.pi/2-self.gs)
         self.Dx = np.diag(Dx)
         self.Du = [np.diag([rho2 for _ in range(nu)]) for rho2 in self.rho2]
+        self.tfmax = 100.
         
         # Optimization problem common parts
-        self.N = 50 # Temporal solution
+        self.N = 30 # Temporal solution
         x = [cvx.Parameter(nx)]+[self.Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
         xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
         u = [[self.Du[i]*cvx.Variable(nu) for __ in range(self.N)] for i in range(self.M)]
@@ -83,10 +86,22 @@ class Lander(lcvx.Problem,object):
         gamma = [cvx.Bool(self.N) if micp else cvx.Variable(self.N) for _ in range(self.M)]
         dt = cvx.Parameter()
         J2 = cvx.Parameter()
+#        Q = np.diag([1.,0.,0.,0.])
+        
+        # Cost components
+#        rdt = cvx.sqrt(dt)
+        tf = dt*self.N
+        ximax = self.tfmax*np.max(self.rho2)
+        Dxi = la.inv(self.Dx)
+        wx = 1e-3
+        time_penalty = tf/self.tfmax
+        input_penalty = xi[-1]/ximax
+#        state_penalty = sum([cvx.quad_form(rdt*x[k],Dxi.dot(Q).dot(Dxi)) for k in range(self.N)])
+        state_penalty = sum([cvx.abs(dt*Dxi[0,0]*x[k][0]) for k in range(self.N)])
         
         self.zeta = 1 # minimum time: 0
-        cost_p2 = xi[-1] # minimum time
-        cost_p3 = dt*self.N # minimum time
+        cost_p2 = input_penalty+wx*state_penalty
+        cost_p3 = time_penalty # minimum time
         
         self.constraints = []
         self.dual2idx = dict()
@@ -204,13 +219,35 @@ class Lander(lcvx.Problem,object):
         
 # Lossless convexification solution
 rocket = Lander()
-#conditions_hold,info = lcvx.check_conditions_123(cooper)
-J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
+#conditions_hold,info = lcvx.check_conditions_123(rocket)
+J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,200.],opt_tol=1e-4)
 
 #%% Plots
 
 import matplotlib
 import matplotlib.pyplot as plt
+
+def post_process(primal):
+    """Remove same-direction thrust artifacts."""
+    alignment_tol = np.cos(np.deg2rad(1)) # [deg] Input alignment tolerance
+    mag_tol = 1e-3 # [m/s^2] Input magnitude tolerance
+    N = primal['x'].shape[1]-1 # Number of input grid points
+    for k in range(N-1):
+        inputs = [primal['u'][i][:,k] for i in range(2)]
+        inputs_next = [primal['u'][i][:,k+1] for i in range(2)]
+        alignment = inputs[0].dot(inputs[1])/(la.norm(inputs[0])*la.norm(inputs[1]))
+        if alignment>=alignment_tol and la.norm(inputs[0])>mag_tol and la.norm(inputs[1])>mag_tol:
+            j = 0 if la.norm(inputs_next[0])>la.norm(inputs_next[1]) else 1
+            for field in ['u','gamma','sigma']:
+                if field=='u':
+                    primal[field][j][:,k] = np.sum([primal[field][i][:,k] for i in range(2)],axis=0)
+                    primal[field][1-j][:,k] = np.zeros(2)
+                else:
+                    primal[field][j][k] = np.sum([primal[field][i][k] for i in range(2)],axis=0)
+                    primal[field][1-j][k] = 0
+    return primal
+
+primal = post_process(primal)
 
 matplotlib.rc('font',**{'family':'serif','serif':['DejaVu Sans']})
 matplotlib.rc('text', usetex=True)

@@ -92,7 +92,8 @@ def solve(problem,tf_range,opt_tol=1e-2):
             status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J2)
             return status,J,solver_time
         f3 = lambda tf: f(tf,J)
-        tf,golden_time = tools.golden(f3,tf_range[0],tf,opt_tol,'Problem 3 ')
+        tf3,golden_time = tools.golden(f3,tf_range[0],tf,opt_tol,'Problem 3 ')
+        tf = tf3 if tf3 is not None else tf
         status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J)
         total_solver_time += golden_time+solver_time
     
