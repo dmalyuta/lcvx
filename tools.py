@@ -121,7 +121,7 @@ def golden(f,lb,ub,tol,name=None):
     if icount == 0:
         x[1] = ub
     name = '' if name is None else name
-    widgets=[name,'[%.2f,%.2f,%.2f]'%(x[0],np.nan,x[2]),' ',progressbar.Bar(),' (',
+    widgets=[name,'[%.2f,%.2f,%.2f]'%(x[0],np.nan,x[2]),' (',
              progressbar.ETA(), ') (solver time: ','0.00',' s)']
     for i in progressbar.progressbar(range(int(icount)),widgets=widgets):
         try:
@@ -203,14 +203,14 @@ def cvx2arr(x,dual=False):
     """Convert CVX variable to an array"""
     return np.array(x.value.T if not dual else x.dual_value.T).flatten()
 
-def project(y,C,abstol=1e-7):
+def support(y,C,abstol=1e-7):
     """
-    Project vector y onto the polytopic set {u: C*u<=0}.
+    Evaluate the support function max{y'*u : C*u<=0, norm(u,2)=1}
     
     Parameters
     ----------
     y : array
-        Vector to project.
+        Support function direction.
     C : array
         Matrix whose rows are the polytopic set facet normals.
     abstol : float, optional
@@ -218,17 +218,17 @@ def project(y,C,abstol=1e-7):
         
     Returns
     -------
-    z : array
-        Projection of y.
+    z : float
+        Support function value.
     """
-    z = cvx.Variable(y.size)
-    cost = cvx.Minimize(cvx.norm2(y-z))
-    constraints = [C*z <= 0]
+    u = cvx.Variable(y.size)
+    cost = cvx.Maximize(u.T*y)
+    constraints = [C*u <= 0, cvx.norm2(u)<=1]
     problem = cvx.Problem(cost,constraints)
     problem.solve(solver=cvx.ECOS,verbose=False,abstol=abstol,reltol=np.finfo(np.float64).eps)
-    if problem.status!='optimal':# and problem.status!='optimal_inaccurate':
-        raise RuntimeError('Projection operation failed')
-    return cvx2arr(z)
+    if problem.status!='optimal':
+        raise RuntimeError('Support function evaluation failed')
+    return problem.value
 
 def pbh(A,B):
     """

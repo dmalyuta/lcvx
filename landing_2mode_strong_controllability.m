@@ -9,13 +9,13 @@
 
 n = 4;
 m = 2;
-omega = 2*pi/(24*3600+39*60+35); % [rad/s] Mars spin
+omega = 1;%2*pi/(24*3600+39*60+35); % [rad/s] Mars spin
 g = 3.71; % [m/s^2] Mars surface gravity
 R = 3396.2e3; % [m] Mars radius
 S = [0,1;-1,0];
 A = [zeros(2),eye(2);omega^2*eye(2),2*omega*S];
 B = [zeros(2);eye(2)];
-Q = diag([1,1e-3,0,0]);
+Q = diag([1,1,0,0]);
 D = zeros(n,m);
 
 V = strong_ctrbl_sub(A,B,Q,D);
@@ -154,6 +154,6 @@ function Vs = strong_ctrbl_sub(A,B,C,D)
 %
 % Vs [double(n,r)] : matrix whose columns span the strongly controllable
 %                    subspace \Sigma.
-Vs = weak_unobsv_sub(A,B,C,D);
+Vs = weak_unobsv_sub(A',C',B',D');
 Vs = null(Vs');
 end

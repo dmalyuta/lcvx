@@ -110,7 +110,7 @@ def plot_automatica19():
     ax.zaxis.pane.set_edgecolor('w')
     plt.tight_layout()
     if save_pdf:
-        fig.savefig('figures/trajectory_%s.pdf'%('inertial' if in_inertial else 'rotating'),
+        fig.savefig('figures/docking_trajectory_%s.pdf'%('inertial' if in_inertial else 'rotating'),
                     bbox_inches='tight',format='pdf',transparent=True)
     
     #%% Control history
@@ -150,7 +150,7 @@ def plot_automatica19():
         ax.set_xlim([0,t[-2]])
     plt.tight_layout(pad=0.5,h_pad=0,w_pad=0)
     if save_pdf:
-        fig.savefig('figures/input.pdf',bbox_inches='tight',format='pdf',transparent=True)
+        fig.savefig('figures/docking_input.pdf',bbox_inches='tight',format='pdf',transparent=True)
     
     #%% Thruster layout
     
@@ -201,7 +201,7 @@ def plot_automatica19():
     ax.zaxis.pane.set_edgecolor('w')
     plt.tight_layout()
     if save_pdf:
-        fig.savefig('figures/rcs.pdf',bbox_inches='tight',format='pdf',transparent=True)
+        fig.savefig('figures/docking_rcs.pdf',bbox_inches='tight',format='pdf',transparent=True)
 
 if __name__=='__main__':
     plot_automatica19()
