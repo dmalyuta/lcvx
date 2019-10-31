@@ -17,6 +17,7 @@ import cvxpy as cvx
 
 import lcvx
 import tools
+import docking_plots
 
 #%% Problem definition
 
@@ -206,7 +207,7 @@ class Docker(lcvx.Problem,object):
 
 def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
     """
-    Post-process and save the 
+    Post-process and save the data.
     """
     # Compute optimal cost profile vs. final time
     cost_profile_t = np.linspace(150,350,20)
@@ -233,13 +234,14 @@ def solve_docking():
     cooper = Docker()
     conditions_hold,info = lcvx.check_conditions_123(cooper)
     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_lcvx.pkl')
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'data/docking_lcvx.pkl')
+    docking_plots.plot_automatica19()
     
     #%% Mixed-integer solution
     
     cooper = Docker(micp=True)
     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-    post_process(cooper,J,t,primal,dual,misc,solver_time,'docking_micp.pkl')
+    post_process(cooper,J,t,primal,dual,misc,solver_time,'data/docking_micp.pkl')
 
 if __name__=='__main__':
     solve_docking()
