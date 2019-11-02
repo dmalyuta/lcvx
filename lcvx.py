@@ -16,12 +16,9 @@ import cvxpy as cvx
 import tools
 
 class Problem:
-    def __init__(self):
-        self.zeta = 1 # Set this to the value of zeta in Problem 1
-    
-    def problem2(self,tf):
+    def solve(self,tf):
         """
-        Problem 2 - the original relaxation.
+        Relaxed problem.
         
         Parameters
         ----------
@@ -46,22 +43,10 @@ class Problem:
             Optimizer time.
         """
         raise NotImplementedError('problem2 not implemeted!')
-        
-    def problem3(self,tf,J2):
-        """
-        Problem 3 - companion minimum-time problem. Same inputs/outputs as
-        problem2 apart from J2.
-        
-        Parameters
-        ----------
-        J2 : float
-            Optimal cost of Problem 2.
-        """
-        raise NotImplementedError('problem3 not implemeted!')
 
 def solve(problem,tf_range,opt_tol=1e-2):
     """
-    Automatica '19 Algorithm 1.
+    Lossless convexification algorithm.
     
     Parameters
     ----------
@@ -82,20 +67,11 @@ def solve(problem,tf_range,opt_tol=1e-2):
     """
     # Solve phase 1 problem
     def f(tf):
-        status,J,t,primal,dual,misc,solver_time = problem.problem2(tf)
+        status,J,t,primal,dual,misc,solver_time = problem.solve(tf)
         return status,J,solver_time
     tf,golden_time = tools.golden(f,tf_range[0],tf_range[1],opt_tol,'Problem 2 ')
-    status,J,t,primal,dual,misc,solver_time = problem.problem2(tf)
+    status,J,t,primal,dual,misc,solver_time = problem.solve(tf)
     total_solver_time = golden_time+solver_time
-    if problem.zeta==1:
-        def f(tf,J2):
-            status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J2)
-            return status,J,solver_time
-        f3 = lambda tf: f(tf,J)
-        tf3,golden_time = tools.golden(f3,tf_range[0],tf,opt_tol,'Problem 3 ')
-        tf = tf3 if tf3 is not None else tf
-        status,J,t,primal,dual,misc,solver_time = problem.problem3(tf,J)
-        total_solver_time += golden_time+solver_time
     
     return J,t,primal,dual,misc,total_solver_time
 

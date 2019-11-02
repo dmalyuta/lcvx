@@ -23,14 +23,17 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     #%% User choices
     
     save_pdf = save_pdf # True to save figure PDFs
-    legend_fontsize = 14 # Size of the legend font
+    legend_fontsize = 13 # Size of the legend font
     
     #%% Load data
     
     solution = pickle.load(open(data,'rb'))
     t,primal,dual,misc = solution['t'],solution['primal'],solution['dual'],solution['misc']
 
-    M,rho1,rho2,theta,gs,C = solution['M'],solution['rho1'],solution['rho2'],solution['theta'],solution['gs'],solution['C']
+    M,rho1,rho2,theta,gs,C,zeta,Ex = (solution['M'],solution['rho1'],
+                                      solution['rho2'],solution['theta'],
+                                      solution['gs'],solution['C'],
+                                      solution['zeta'],solution['Ex'])
     
     if save_pdf and not os.path.isdir('figures/%s'%(folder)):
         os.makedirs('figures/%s'%(folder))
@@ -131,11 +134,24 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     
     #### Trajectory plot
     
+    tu = t[:-1]/t[-1]
+    dt = t[1]-t[0]
+    N = tu.size
+    
     pos_style = dict(color='black',linewidth=1,zorder=90)
     thrust_style = [dict(color=colors[i],linewidth=0.5) for i in range(M)]
     ground_style = dict(linewidth=0,color='black',alpha=0.2,zorder=1)
     gs_style = dict(color='black',linestyle='--',linewidth=0.5,zorder=1)
+    state_constraint_active_style = dict(color='red',marker='.',linestyle='none',markersize=10,zorder=99)
     u_whisker_scale = 20
+    
+    active_tol = 1e-4#np.sqrt(np.finfo(np.float64).eps)
+    state_constraint = lambda x: (np.array([0,1]).dot(Ex).dot(primal['x'][:,k])-
+                                  la.norm(Ex.dot(primal['x'][:,k]))*np.cos(np.pi/2-gs))<=active_tol
+    try:
+        state_constraint_active = np.column_stack([primal['x'][:,k] for k in range(N) if state_constraint(primal['x'][:,k])])
+    except ValueError:
+        state_constraint_active = None
     
     matplotlib.rcParams.update({'font.size': 26})
     
@@ -151,6 +167,8 @@ def plot_ifac20(data,save_pdf=False,folder=''):
         for i in range(M):
             ax.plot([primal['x'][0,k],primal['x'][0,k]-u_whisker_scale*primal['u'][i][0,k]],
                     [primal['x'][1,k],primal['x'][1,k]-u_whisker_scale*primal['u'][i][1,k]],**thrust_style[i])
+    if state_constraint_active is not None:
+        ax.plot(state_constraint_active[0],state_constraint_active[1],label='$x(t)\in\mathrm{bdry}(\mathcal X)$',**state_constraint_active_style)
     ax.set_xlabel('Downrange [m]',fontsize=22)
     ax.set_ylabel('Altitude AGL [m]',fontsize=22)
     fig.tight_layout()
@@ -217,81 +235,84 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     if save_pdf:
         fig.savefig('figures/%s/rocket_input_magnitude.pdf'%(folder),bbox_inches='tight',format='pdf',transparent=True)
         
-    #### Thrust polar plot
-        
-    fig = plt.figure(6,figsize=(6.4,4.8))
-    plt.clf()
-    ax = fig.add_subplot(111)
-    ax.axis('equal')
-    for i in range(M):
-        draw_polar_grid(ax,theta[i],[rho1[i],rho2[i]],np.array([0,1]),
-                        angles,np.array(range(rho1[i]+i,rho2[i]+1)),
-                        border_style[i],grid_style[i],
-                        angle_tick_blacklist=lambda ang:ang<=theta[1]/2 and ang>=-theta[1]/2)
-        ax.plot([u if la.norm(u)>np.sqrt(1e-5) else np.nan for u in primal['u'][i][0]],
-                [u if la.norm(u)>np.sqrt(1e-5) else np.nan for u in primal['u'][i][1]],
-                label='$u_{%d}(t)$'%(i),**thrust_style[i])
-    ax.plot(0,0,**origin_style)
-    ax.set_xlabel('$x$-acceleration $u_{i,1}(t)$ [m/s$^2$]',fontsize=16)
-    ax.set_ylabel('$y$-acceleration $u_{i,2}(t)$ [m/s$^2$]',fontsize=16)
-    plt.tight_layout()
-    ylims = ax.get_ylim()
-    ylims = [ylims[0],13]
-    ax.set_ylim(ylims)
-    fig.canvas.draw()
-    ax.legend(prop={'size': legend_fontsize})
-    
-    if save_pdf:
-        fig.savefig('figures/%s/rocket_input_polar.pdf'%(folder),bbox_inches='tight',format='pdf',transparent=True)
-        
     if 'micp' in data:
         return # Dual variables don't apply to MICP solution
     
     #### DUAL VARIABLE PLOTS
+    
+    matplotlib.rcParams.update({'font.size': 16})
         
     #### Input valuation plot (support functions)
     
-    input_active_tol = 1e-1
-    input_active = [la.norm(primal['u'][i],axis=0)>input_active_tol for i in range(M)]
-    y = misc['y']
-    valuation = [[(tools.support(y[k],C[i]))*rho2[i] if not
-                  la.norm(primal['u'][i][:,k])<input_active_tol else np.nan for k in
-                  range(y.shape[0])] for i in range(M)]
-    valuation /= np.nanmax(np.abs(valuation)) # normalize
-    r_ = rho2[1]/rho2[0]
-    a_ = np.cos(np.deg2rad(theta[0]-theta[1])/2)
-    b_ = np.sin(np.deg2rad(theta[0]-theta[1])/2)
-    equiv_plane_angle = np.pi/2-np.deg2rad(theta[0]/2)-np.arccos((((r_*a_-1)/(r_*b_))**2+1)**-0.5)
-    n_equiv = np.array([np.cos(equiv_plane_angle),np.sin(equiv_plane_angle)])
+    projection = [np.array([la.norm(misc['y'][k]-C[i].T.dot(dual['lambda_4_%d'%(i+1)][:,k]),ord=2)
+                            for k in range(N)]) for i in range(M)]
+    gain = [np.array([(projection[i][k]+dual['eta'][0,k]*dt*zeta)*rho2[i]
+            for k in range(N)]) for i in range(M)]
+    dgain = gain[1]-gain[0]
+    ndgain = np.array([1/dgain[k] if np.abs(dgain[k])>1e-6 else np.nan for k in range(N)])#/min(np.max(dgain),-np.min(dgain))
+    proj_tol = np.sqrt(np.finfo(np.float64).eps)
+    tu_ndgain_zero = np.array([tu[k] for k in range(N) if np.isnan(ndgain[k]) and not np.any([
+            projection[i][k]<proj_tol for i in range(M)])])
     
-    u_active_style = dict(linewidth=0,alpha=0.15,step='post',zorder=1)
-    border_style = [dict(color=colors[i],linewidth=0.5) for i in range(M)]
-    dual_style = dict(marker='.',markersize=5)
+    u_active_tol = np.sqrt(1e-5)
+    u_active = [np.array([la.norm(primal['u'][i][:,k])>u_active_tol for k in range(N)]) for i in range(M)]
+    u_active_style = [dict(color=colors[i],alpha=0.2,step='post',linewidth=0,zorder=0) for i in range(M)]
+    
+    y2_color = 'magenta'
     
     fig = plt.figure(4,figsize=(6.4,3.5))
     plt.clf()
     ax = fig.add_subplot(111)
     for i in range(M):
-#        ax.plot(t[:-1]/t[-1],valuation[i],color=colors[i],linestyle='none',**dual_style)
-#        ax.plot(t[:-1]/t[-1],valuation[i],color=colors[i],label='$\hat v_{%d}(t)$'%(i+1))
-        ax.step(t[:-1]/t[-1],valuation[i],color=colors[i],label='$\hat v_{%d}(t)$'%(i+1),
-                where='post')
-        ax.fill_between(t[:-1]/t[-1],input_active[i],color=colors[i],**u_active_style)
-    ax.set_xlabel('Normalized time $\hat t$',fontsize=16)
-    ax.set_ylabel('Normalized\nvaluation $\hat v_i(t)$',fontsize=16)
-    ax.legend(prop={'size': legend_fontsize})
-    plt.tight_layout()
+        ax.plot(tu,gain[i],color=colors[i],label='$\Gamma_{%d}(t)$'%(i+1))
+    ax.axhline(0,color='red',linewidth=1,linestyle='--',zorder=1)
     ax.autoscale(tight=True)
+    ax.set_ylabel('Gain $\Gamma_i(t)$')
+    ax.set_xlabel('Normalized time')
+    ax.legend(prop={'size': legend_fontsize})
+    fig.canvas.draw()
+    xlims = ax.get_xlim() 
+    ylims = ax.get_ylim()
+    for i in range(M):
+        ax.fill_between(tu,u_active[i]*ylims[1],u_active[i]*ylims[0],**u_active_style[i])
+    ax2 = ax.twinx()
+    ax.spines['right'].set_color(y2_color)
+    ax2.spines['right'].set_color(y2_color)
+    ax2.tick_params(axis='y', colors=y2_color)
+    ax2.set_yscale('symlog')
+    ax2.plot(tu,ndgain,color=y2_color)
+    for k in range(tu_ndgain_zero.size):    
+        ax2.axvline(tu_ndgain_zero[k],color='black',linestyle='--')
+    ax2.axhline(0,color='red',linewidth=1,linestyle='--',zorder=1)
+    ax2.autoscale(tight=True)
+    ax2.set_ylabel('$1/(\Gamma_2(t)-\Gamma_1(t))$',color=y2_color)
+    ax.set_zorder(ax2.get_zorder()+1)
+    ax.patch.set_visible(False) 
+    plt.tight_layout()
     
     if save_pdf:
         fig.savefig('figures/%s/rocket_input_valuation.pdf'%(folder),bbox_inches='tight',format='pdf',transparent=True)
         
     #### Primer vector trajectory
     
+    if zeta==0:
+        r_ = rho2[1]/rho2[0]
+        a_ = np.cos(np.deg2rad(theta[0]-theta[1])/2)
+        b_ = np.sin(np.deg2rad(theta[0]-theta[1])/2)
+        equiv_plane_angle = np.pi/2-np.deg2rad(theta[0]/2)-np.arccos((((r_*a_-1)/(r_*b_))**2+1)**-0.5)
+    else:
+        equiv_plane_angle  = np.pi/2-(theta[1]/2+(np.pi/2-(theta[0]-theta[1])/2))
+    n_equiv = np.array([np.cos(equiv_plane_angle),np.sin(equiv_plane_angle)])
+    
+    try:
+        state_constraint_active = np.column_stack([misc['y'][k,:] for k in range(N) if state_constraint(primal['x'][:,k])])
+    except ValueError:
+        state_constraint_active = None
+    
     primer_style = dict(color='black')
     primer_style_ic = dict(color='black',marker='x',linestyle='none')
     equiv_plane_style = gs_style
-    yscale = rho2[0]/np.max(la.norm(y,axis=1))
+    yscale = rho2[0]/np.max(la.norm(misc['y'],axis=1))
     
     fig = plt.figure(6,figsize=(6.4,4.8))
     plt.clf()
@@ -302,12 +323,14 @@ def plot_ifac20(data,save_pdf=False,folder=''):
                         angles,np.array(range(rho1[i]+i,rho2[i]+1)),
                         border_style[i],grid_style[i],
                         angle_tick_blacklist=lambda ang:ang<=theta[1]/2 and ang>=-theta[1]/2)
-        ax.plot([u if la.norm(u)>np.sqrt(1e-5) else np.nan for u in primal['u'][i][0]],
-                [u if la.norm(u)>np.sqrt(1e-5) else np.nan for u in primal['u'][i][1]],
+        ax.plot([u if la.norm(u)>u_active_tol else np.nan for u in primal['u'][i][0]],
+                [u if la.norm(u)>u_active_tol else np.nan for u in primal['u'][i][1]],
                 label='$u_{%d}(t)$'%(i),**thrust_style[i])
     ax.plot(0,0,**origin_style)
-    ax.plot(yscale*y[:,0],yscale*y[:,1],label='$\hat y(t)$',**primer_style)
-    ax.plot(yscale*y[0,0],yscale*y[0,1],label='$\hat y(0)$',**primer_style_ic)
+    ax.plot(yscale*misc['y'][:,0],yscale*misc['y'][:,1],label='$\hat y(t)$',**primer_style)
+    ax.plot(yscale*misc['y'][0,0],yscale*misc['y'][0,1],label='$\hat y(0)$',**primer_style_ic)
+    if state_constraint_active is not None:
+        ax.plot(yscale*state_constraint_active[0],yscale*state_constraint_active[1],label='$x(t)\in\mathrm{bdry}(\mathcal X)$',**state_constraint_active_style)
     ax.set_xlabel('$x$-acceleration $u_{i,1}(t)$ [m/s$^2$]',fontsize=16)
     ax.set_ylabel('$y$-acceleration $u_{i,2}(t)$ [m/s$^2$]',fontsize=16)
     plt.tight_layout()
@@ -321,7 +344,7 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     ax.plot([0,-s*n_equiv[0]],[0,s*n_equiv[1]],**equiv_plane_style)
     ax.set_xlim(xlims)
     ax.set_ylim(ylims)
-    ax.legend(prop={'size': legend_fontsize})
+    ax.legend(loc='upper right',prop={'size': legend_fontsize})
     
     if save_pdf:
         fig.savefig('figures/%s/rocket_primer_vector.pdf'%(folder),bbox_inches='tight',format='pdf',transparent=True)
