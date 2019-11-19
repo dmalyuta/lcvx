@@ -8,6 +8,9 @@ B. Acikmese -- ACL, University of Washington
 Copyright 2019 University of Washington. All rights reserved.
 """
 
+import sys
+sys.path.append('../lib/')
+
 import numpy as np
 import numpy.linalg as la
 import pickle
@@ -15,7 +18,7 @@ import cvxpy as cvx
 
 import lcvx
 import tools
-import landing_plots
+import plots
 
 #%% Problem definition
 
@@ -223,7 +226,7 @@ def solve_landing(h0,mintime):
     J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
     filename = 'data/landing_lcvx_%s.pkl'%(identifier)
     save(rocket,J,t,primal,dual,misc,solver_time,filename)
-    landing_plots.plot_ifac20(data=filename,save_pdf=False,folder='%s/lcvx'%(identifier))
+    plots.plot_ifac20(data=filename,save_pdf=True,folder='%s/lcvx'%(identifier))
     
     #%% Mixed-integer solution
     
@@ -232,7 +235,7 @@ def solve_landing(h0,mintime):
         J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
         filename = 'data/landing_micp_%s.pkl'%(identifier)
         save(rocket,J,t,primal,dual,misc,solver_time,filename)
-        landing_plots.plot_ifac20(data=filename,save_pdf=True,folder='%s/micp'%(identifier))
+        plots.plot_ifac20(data=filename,save_pdf=True,folder='%s/micp'%(identifier))
 
 if __name__=='__main__':
     h0_list = [650,800,1000,1500,3000]
@@ -243,5 +246,4 @@ if __name__=='__main__':
             print '======== Running: %d AGL, zeta %d'%(h0,1-int(mintime))
             solve_landing(h0,mintime)
     if plot_sweep:
-        landing_plots.plot_ifac2020_sweep(h0=np.linspace(650,6000,50),
-                                          mintime=True,save_pdf=True)
+        plots.plot_ifac2020_sweep(h0=np.linspace(650,6000,50),mintime=True,save_pdf=True)

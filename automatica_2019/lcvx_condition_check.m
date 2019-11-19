@@ -6,11 +6,13 @@
 % 
 % Copyright 2019 University of Washington. All rights reserved.
 
+addpath(genpath('../lib'));
+
 %% Parameters
 
 n = 6;
 m = 3;
-omega = [0,0,2]'*pi/60; % [rad/s] Mars spin
+omega = [0,0,2]'*pi/60; % [rad/s] Space station spin
 S = @(w) [0,-w(3),w(2);w(3),0,-w(1);-w(2),w(1),0];
 A = [zeros(3),eye(3);-S(omega)^2,-2*S(omega)];
 B = [zeros(3);eye(3)];

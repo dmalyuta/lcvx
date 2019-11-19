@@ -6,11 +6,13 @@
 % 
 % Copyright 2019 University of Washington. All rights reserved.
 
+addpath(genpath('../lib'));
+
 %% Parameters
 
 n = 4;
 m = 2;
-omega = 1;%2*pi/(24*3600+39*60+35); % [rad/s] Mars spin
+omega = 2*pi/(24*3600+39*60+35); % [rad/s] Mars spin
 g = 3.71; % [m/s^2] Mars surface gravity
 S = [0,1;-1,0];
 A = [zeros(2),eye(2);omega^2*eye(2),2*omega*S];

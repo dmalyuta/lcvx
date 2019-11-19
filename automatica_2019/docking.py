@@ -9,6 +9,9 @@ B. Acikmese -- ACL, University of Washington
 Copyright 2019 University of Washington. All rights reserved.
 """
 
+import sys
+sys.path.append('../lib/')
+
 import pickle
 import numpy as np
 import numpy.linalg as la
@@ -17,7 +20,7 @@ import cvxpy as cvx
 
 import lcvx
 import tools
-import docking_plots
+import plots
 
 #%% Problem definition
 
@@ -205,23 +208,20 @@ def solve_docking():
     #%% Lossless convexification solution
     
 #    cooper = Docker()
-#    conditions_hold,info = lcvx.check_conditions_123(cooper)
 #    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
     filename = 'data/docking_lcvx.pkl'
 #    post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
-    docking_plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/lcvx')
-    docking_plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/lcvx')
+    plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/lcvx')
+    plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/lcvx')
     
     #%% Mixed-integer solution
     
-# =============================================================================
-#     cooper = Docker(micp=True)
-#     J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-#     filename = 'data/docking_micp.pkl'
-#     post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
-#     docking_plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/micp')
-#     docking_plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/micp')
-# =============================================================================
+#    cooper = Docker(micp=True)
+#    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+#    filename = 'data/docking_micp.pkl'
+#    post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
+#    plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/micp')
+#    plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/micp')
     
 if __name__=='__main__':
     solve_docking()

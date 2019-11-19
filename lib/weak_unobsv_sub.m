@@ -2,7 +2,7 @@ function Vs = weak_unobsv_sub(A,B,C,D)
 % WEAK_UNOBSV_SUB Find the weakly unobservable subspace for the linear system
 % \Sigma = (A,B,C,D). Based on Trentelman et al. page 162.
 %
-% Original author: Matt Harris, April 16, 2013
+% Original author: Matthew W. Harris, April 16, 2013
 %
 % Syntax:
 %
