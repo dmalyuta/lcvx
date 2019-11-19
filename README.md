@@ -1,39 +1,16 @@
-# Lossless convexification with a mixed-integer constraint
+# Examples of recent results in lossless convexification
 
-<p align="center">
-	<img width="500" src="/figures/readme_image.png?raw=true">
-</p>
-<p align="center" width="600">
-Figure: globally optimal trajectory that trades off minimum time and fuel usage. The trajectories and their projections are shown in the rotating frame (top, left) and the inertial frame (top, right). The red vectors are the velocity and the blue vectors are the thrust (negative of the acceleration). The total input magnitude (bottom) clearly shows the mixed-integer nature of the input, despite this being the solution to a second-order cone program with real variables.
-</p>
+This repository implements the following papers.
 
-## General Description
-
-This repository implements the numerical example of the paper cited below,
-submitted to [Automatica](https://www.journals.elsevier.com/automatica/). This
-solves the problem of satellite docking to a rotating space station. The
-satellite is equipped with 12 thrusters of which at most 4 can be simutaneously
-active, and each of which has an upper and lower bound 2-norm constraint.
-
-``` 
-@article{Malyuta2019e,
-       author = {{Malyuta}, Danylo and {Szmuk}, Michael and {A\c{c}{\i}kme\c{s}e}, Beh\c{c}et},
-        title = "Lossless Convexification for Optimal Control Problems with Multiple Inputs and a Control Exclusivity Constraint",
-      journal = {arXiv e-prints},
-     keywords = {Mathematics - Optimization and Control},
-         year = "2019",
-        month = "Feb",
-          eid = {arXiv:1902.02726},
-        pages = {arXiv:1902.02726},
-archivePrefix = {arXiv},
-       eprint = {1902.02726},
- primaryClass = {math.OC},
-       adsurl = {https://ui.adsabs.harvard.edu/\#abs/2019arXiv190202726M},
-      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
-}
+```
+TODO
 ```
 
-## Requirements
+```
+TODO
+```
+
+## Installation
 
 To run the code, you must have Python 2.7.15 and [Gurobi
 8.1](http://www.gurobi.com/downloads/download-center) installed. To install
@@ -42,18 +19,23 @@ install [Anaconda for Python 2.7](https://www.anaconda.com/distribution/) and
 then execute (from inside this repository's directory):
 
 ```
-$ conda create -n lcvx_aut19 python=2.7 anaconda # Answer yes to everything
-$ source activate lcvx_aut19
+$ conda create -n lcvx python=2.7 anaconda # Answer yes to everything
+$ source activate lcvx
 $ pip install -r requirements.txt
+$ source activate lcvx
 ```
 
-## Instructions
+## Examples
 
-Execute ``main.py`` to run the code. If you followed the above installation
-instructions, you can do:
+1. Satellite docking to a rotating space station. The actuators are 12 reaction
+   control system (RCS) jets of which up to 4 can be fired simultaneously
 
-```
-$ source activate lcvx_aut19
-$ ipython main.py
-```
+<p align="center">
+	<img width="500" src="/automatica_2019/figures/automatic_2019_example.png?raw=true">
+</p>
 
+2. Rocket landing with a two-mode thruster: a high-thrust low-gimbal mode and a low-thrust high-gimbal mode.
+
+<p align="center">
+	<img width="500" src="/ifac_wc_2020/figures/ifac_wc_2020_example.png?raw=true">
+</p>

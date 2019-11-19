@@ -8,4 +8,5 @@
 /automatica_2019/figures/**/*.pdf
 !/ifac_wc_2020/figures/.gitkeep
 !/automatica_2019/figures/.gitkeep
+!/**/figures/*_example.png
 

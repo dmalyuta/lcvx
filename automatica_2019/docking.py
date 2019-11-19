@@ -207,21 +207,21 @@ def post_process(pbm,J,t,primal,dual,misc,solver_time,filename):
 def solve_docking():
     #%% Lossless convexification solution
     
-#    cooper = Docker()
-#    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+    cooper = Docker()
+    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
     filename = 'data/docking_lcvx.pkl'
-#    post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
+    post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
     plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/lcvx')
     plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/lcvx')
     
     #%% Mixed-integer solution
     
-#    cooper = Docker(micp=True)
-#    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
-#    filename = 'data/docking_micp.pkl'
-#    post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
-#    plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/micp')
-#    plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/micp')
+    cooper = Docker(micp=True)
+    J,t,primal,dual,misc,solver_time = lcvx.solve(cooper,[100.,300.],opt_tol=1e-4)
+    filename = 'data/docking_micp.pkl'
+    post_process(cooper,J,t,primal,dual,misc,solver_time,filename)
+    plots.plot_automatica19(data=filename,in_inertial=True,save_pdf=True,folder='docking/micp')
+    plots.plot_automatica19(data=filename,in_inertial=False,save_pdf=True,folder='docking/micp')
     
 if __name__=='__main__':
     solve_docking()
