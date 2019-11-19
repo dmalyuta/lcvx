@@ -31,11 +31,11 @@ $ source activate lcvx
    control system (RCS) jets of which up to 4 can be fired simultaneously
 
 <p align="center">
-	<img width="500" src="/automatica_2019/figures/automatic_2019_example.png?raw=true">
+	<img width="500" src="/automatica_2019/figures/automatica_2019_example.png?raw=true">
 </p>
 
 2. Rocket landing with a two-mode thruster: a high-thrust low-gimbal mode and a low-thrust high-gimbal mode.
 
 <p align="center">
-	<img width="500" src="/ifac_wc_2020/figures/ifac_wc_2020_example.png?raw=true">
+	<img width="800" src="/ifac_wc_2020/figures/ifac_wc_2020_example.png?raw=true">
 </p>
