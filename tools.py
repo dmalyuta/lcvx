@@ -203,14 +203,14 @@ def cvx2arr(x,dual=False):
     """Convert CVX variable to an array"""
     return np.array(x.value.T if not dual else x.dual_value.T).flatten()
 
-def support(y,C,abstol=1e-7):
+def eucl_proj(y,C,abstol=1e-7):
     """
-    Evaluate the support function max{y'*u : C*u<=0, norm(u,2)=1}
+    Evaluate the Eculedian projection norm2(argmin_{Cz<=0}(norm2(y-z))).
     
     Parameters
     ----------
     y : array
-        Support function direction.
+        The vector being projected.
     C : array
         Matrix whose rows are the polytopic set facet normals.
     abstol : float, optional
@@ -218,17 +218,18 @@ def support(y,C,abstol=1e-7):
         
     Returns
     -------
-    z : float
-        Support function value.
+    proj : float
+        Eucledian projection value.
     """
-    u = cvx.Variable(y.size)
-    cost = cvx.Maximize(u.T*y)
-    constraints = [C*u <= 0, cvx.norm2(u)<=1]
+    z = cvx.Variable(y.size)
+    cost = cvx.Minimize(cvx.norm2(y-z))
+    constraints = [C*z <= 0]
     problem = cvx.Problem(cost,constraints)
     problem.solve(solver=cvx.ECOS,verbose=False,abstol=abstol,reltol=np.finfo(np.float64).eps)
     if problem.status!='optimal':
         raise RuntimeError('Support function evaluation failed')
-    return problem.value
+    proj = la.norm(cvx2arr(z),ord=2)
+    return proj
 
 def pbh(A,B):
     """

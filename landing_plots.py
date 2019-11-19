@@ -29,6 +29,8 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     
     solution = pickle.load(open(data,'rb'))
     t,primal,dual,misc = solution['t'],solution['primal'],solution['dual'],solution['misc']
+    
+    print 'Time of flight %.2f [s]'%(t[-1])
 
     M,rho1,rho2,theta,gs,C,zeta,Ex = (solution['M'],solution['rho1'],
                                       solution['rho2'],solution['theta'],
@@ -296,21 +298,16 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     #### Primer vector trajectory
     
     if zeta==0:
-        r_ = rho2[1]/rho2[0]
-        a_ = np.cos(np.deg2rad(theta[0]-theta[1])/2)
-        b_ = np.sin(np.deg2rad(theta[0]-theta[1])/2)
-        equiv_plane_angle = np.pi/2-np.deg2rad(theta[0]/2)-np.arccos((((r_*a_-1)/(r_*b_))**2+1)**-0.5)
-    else:
-        equiv_plane_angle  = np.pi/2-(theta[1]/2+(np.pi/2-(theta[0]-theta[1])/2))
-    n_equiv = np.array([np.cos(equiv_plane_angle),np.sin(equiv_plane_angle)])
+        equiv_plane_angle = np.pi/2-np.deg2rad(theta[1]/2)-np.arccos(np.float(rho2[0])/rho2[1])
+        n_equiv = np.array([np.cos(equiv_plane_angle),np.sin(equiv_plane_angle)])
     
     try:
         state_constraint_active = np.column_stack([misc['y'][k,:] for k in range(N) if state_constraint(primal['x'][:,k])])
     except ValueError:
         state_constraint_active = None
     
-    primer_style = dict(color='black')
-    primer_style_ic = dict(color='black',marker='x',linestyle='none')
+    primer_style = dict(color='black',zorder=999)
+    primer_style_ic = dict(color='black',marker='x',linestyle='none',zorder=999)
     equiv_plane_style = gs_style
     yscale = rho2[0]/np.max(la.norm(misc['y'],axis=1))
     
@@ -335,19 +332,76 @@ def plot_ifac20(data,save_pdf=False,folder=''):
     ax.set_ylabel('$y$-acceleration $u_{i,2}(t)$ [m/s$^2$]',fontsize=16)
     plt.tight_layout()
     ylims = ax.get_ylim()
-    ylims = [ylims[0],13]
+    ylims = [-1,14]
     ax.set_ylim(ylims)
     fig.canvas.draw()
     xlims = ax.get_xlim()
-    s = xlims[1]*2/n_equiv[0]
-    ax.plot([0,s*n_equiv[0]],[0,s*n_equiv[1]],**equiv_plane_style)
-    ax.plot([0,-s*n_equiv[0]],[0,s*n_equiv[1]],**equiv_plane_style)
+    if zeta==0:
+        s = xlims[1]*2/n_equiv[0]
+        ax.plot([0,s*n_equiv[0]],[0,s*n_equiv[1]],**equiv_plane_style)
+        ax.plot([0,-s*n_equiv[0]],[0,s*n_equiv[1]],**equiv_plane_style)
     ax.set_xlim(xlims)
     ax.set_ylim(ylims)
     ax.legend(loc='upper right',prop={'size': legend_fontsize})
     
     if save_pdf:
         fig.savefig('figures/%s/rocket_primer_vector.pdf'%(folder),bbox_inches='tight',format='pdf',transparent=True)
-
-if __name__=='__main__':
-    plot_ifac20()
+        
+def plot_ifac2020_sweep(h0,mintime,save_pdf=False):
+    """
+    Plot a sweep of landing trajectories over the initial altitude AGL.
+    
+    Parameters
+    ----------
+    h0 : np.array
+        The initial altitudes AGL at which to compute trajectories.
+    mintime : bool
+        True for minimum-time, False for minimum-fuel.
+    save_pdf : bool, optional
+        True to save a PDF of the figure.
+    """
+    import lcvx
+    import landing_2mode
+    
+    matplotlib.rc('font',**{'family':'serif','serif':['DejaVu Sans']})
+    matplotlib.rc('text', usetex=True)
+    matplotlib.rcParams.update({'font.size': 15})
+    
+    pos_style = dict(linewidth=1)
+    ground_style = dict(linewidth=0,color='black',alpha=0.2,zorder=1)
+    gs_style = dict(color='black',linestyle='--',linewidth=0.5,zorder=1)
+    
+    fig = plt.figure(20,figsize=(5,11.45))
+    plt.clf()
+    ax = fig.add_subplot(111)
+    #ax.axis('equal')
+    total_solver_time = 0
+    for i in range(h0.size):
+        print '\n======== Running (%d/%d): h0 = %.1f m AGL'%(i+1,h0.size,h0[i])
+        frac = np.float(i)/(h0.size-1)
+        rocket = landing_2mode.Lander(agl=h0[i],N=30,mintime=mintime)
+        J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
+        total_solver_time += solver_time
+        ax.plot(primal['x'][0],primal['x'][1],color=(1-frac)*np.zeros(3)+frac*np.ones(3)*0.7,zorder=1000-i,**pos_style)
+        if i==0:
+            n_gs = [tools.R2d(-(np.pi/2-rocket.gs)).dot(np.array([0,1])),
+                    tools.R2d(np.pi/2-rocket.gs).dot(np.array([0,1]))]
+    print '\nTotal solver time: %f s'%(total_solver_time)
+    ax.set_xlabel('Downrange [m]',fontsize=15)
+    ax.set_ylabel('Altitude AGL [m]',fontsize=15)
+    fig.tight_layout()
+    ax.autoscale(tight=True)
+    fig.canvas.draw()
+    xlims = ax.get_xlim()
+    ylims = ax.get_ylim()
+    ax.fill_between(xlims,[ylims[0],ylims[0]],[0,0],**ground_style)
+    s = ylims[1]/n_gs[0][1]
+    for i in range(2):
+        ax.plot([0,s*n_gs[i][0]],[0,s*n_gs[i][1]],**gs_style)
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
+    ax.set_yticks(ticks=np.linspace(0,primal['x'][1,0],7))
+    
+    if save_pdf:
+        fig.savefig('figures/sweep_h0_%d_%d_zeta%d.pdf'%(h0[0],h0[-1],0 if mintime else 1),
+                    bbox_inches='tight',format='pdf',transparent=True)

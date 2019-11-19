@@ -20,7 +20,7 @@ import landing_plots
 #%% Problem definition
 
 class Lander(lcvx.Problem,object):
-    def __init__(self,agl,mintime,micp=False):
+    def __init__(self,agl,mintime,N,micp=False):
         """
         Parameters
         ----------
@@ -28,6 +28,8 @@ class Lander(lcvx.Problem,object):
             Initial altitude above ground level (AGL).
         mintime : bool
             If True, use a minimum time cost, otherwise minimum fuel.
+        N : int, optional
+            Number of time nodes for discretization.
         micp : bool, optional
             Set to ``True`` to solve the problem via mixed-integer programming.
         """
@@ -86,7 +88,7 @@ class Lander(lcvx.Problem,object):
         self.tfmax = 100.
         
         # Optimization problem common parts
-        self.N = 100 # Temporal solution
+        self.N = N # Temporal solution
         x = [cvx.Parameter(nx)]+[self.Dx*cvx.Variable(nx) for _ in range(1,self.N+1)]
         xi = [cvx.Parameter()]+[cvx.Variable() for _ in range(1,self.N+1)]
         u = [[self.Du[i]*cvx.Variable(nu) for __ in range(self.N)] for i in range(self.M)]
@@ -212,30 +214,34 @@ def solve_landing(h0,mintime):
     h0 : float
         Initial altitude above ground level (AGL).
     """    
+    identifier = '%dagl_zeta%d'%(h0,1-int(mintime))
+    N = 150
+    
     #%% Lossless convexification solution
     
-    rocket = Lander(agl=h0,mintime=mintime)
+    rocket = Lander(agl=h0,N=N,mintime=mintime)
     J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
-    identifier = '%dagl_zeta%d'%(h0,1-int(mintime))
     filename = 'data/landing_lcvx_%s.pkl'%(identifier)
     save(rocket,J,t,primal,dual,misc,solver_time,filename)
     landing_plots.plot_ifac20(data=filename,save_pdf=False,folder='%s/lcvx'%(identifier))
     
     #%% Mixed-integer solution
     
-# =============================================================================
-#     if h0 > 650:
-#         rocket = Lander(agl=h0,micp=True)
-#         J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
-#         filename = 'data/landing_lcvx_%s.pkl'%(identifier)
-#         save(rocket,J,t,primal,dual,misc,solver_time,filename)
-#         landing_plots.plot_ifac20(data=filename,save_pdf=True,folder='%s/micp'%(identifier))
-# =============================================================================
+    if h0 > 650 and not (h0==1000 and mintime) and not (h0==1500 and mintime):
+        rocket = Lander(agl=h0,N=N,mintime=mintime,micp=True)
+        J,t,primal,dual,misc,solver_time = lcvx.solve(rocket,[0.,100.],opt_tol=1e-4)
+        filename = 'data/landing_micp_%s.pkl'%(identifier)
+        save(rocket,J,t,primal,dual,misc,solver_time,filename)
+        landing_plots.plot_ifac20(data=filename,save_pdf=True,folder='%s/micp'%(identifier))
 
 if __name__=='__main__':
-    h0_list = [800]#[650,800,1000,1500,3000]
-    costs = [True]#[True,False] # mintime values
+    h0_list = [650,800,1000,1500,3000]
+    costs = [False,True] # mintime values
+    plot_sweep = True
     for h0 in h0_list:
         for mintime in costs:
             print '======== Running: %d AGL, zeta %d'%(h0,1-int(mintime))
             solve_landing(h0,mintime)
+    if plot_sweep:
+        landing_plots.plot_ifac2020_sweep(h0=np.linspace(650,6000,50),
+                                          mintime=True,save_pdf=True)
