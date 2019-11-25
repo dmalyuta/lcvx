@@ -3,11 +3,25 @@
 This repository implements the following papers.
 
 ```
-TODO
+@ARTICLE{2019arXiv191109013M,
+       author = {{Malyuta}, Danylo and {Acikmese}, Behcet},
+        title = "{Lossless Convexification of Optimal Control Problems with Semi-continuous Inputs}",
+      journal = {arXiv e-prints},
+         year = "2019",
+        month = "Nov",
+        pages = {arXiv:1911.09013}
+}
 ```
 
 ```
-TODO
+@ARTICLE{2019arXiv190202726M,
+       author = {{Malyuta}, Danylo and {Szmuk}, Michael and {Acikmese}, Behcet},
+        title = "{Lossless convexification of non-convex optimal control problems with disjoint semi-continuous inputs}",
+      journal = {arXiv e-prints},
+         year = "2019",
+        month = "Feb",
+        pages = {arXiv:1902.02726}
+}
 ```
 
 ## Installation
